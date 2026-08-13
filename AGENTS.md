@@ -47,6 +47,13 @@ skillguard/
 - **存储**：PostgreSQL + S3（技能样本、审计报告）
 - **沙箱**（阶段二）：gVisor（Go 生态，衔接最顺）
 - **部署**：Docker + 单二进制（企业私有化交付友好）
+- **管理后台前端**（阶段二/三）：React 19 + Ant Design 6 + TypeScript（公司 B 端标准，Vite 独立 SPA，Zustand + TanStack Query）
+
+> **技术栈决策记录（2026-08-13 锁定，一次到位不重构）**
+> - **Gin vs Fiber → 维持 Gin**：net/http 生态中间件（swagger/prometheus/otel/JWT/限流）现成；`POST /v1/audit` 异步交接 asynq 无 fasthttp Ctx 回收陷阱；本产品低并发长任务，Fiber 的性能优势无意义
+> - **Go vs Rust → 维持 Go**：gVisor/asynq 为 Go 生态（阶段二硬需求）、regexp2 规则引擎、LLM 官方 Go SDK、CLI+Web 单二进制共用内核是产品卖点；审计负载 IO+LLM 主导，性能无差异
+> - 阶段二 `cmd/server` 吸收公司 Go 工程标准：slog 日志 / Viper+godotenv 配置 / golang-jwt v5 鉴权 / golang-migrate 迁移 / testify 测试 / 统一响应格式
+> - 依据：公司知识库《Go 技术栈选型》（对内服务标准）、《前端技术栈选型》；skillguard 是 AGENTS.md 明确拍板的 Go 特例
 
 ## 开发约定
 
@@ -61,7 +68,7 @@ skillguard/
 ### 规则引擎约定
 - 规则定义**优先放 `rules/rules.yaml`**，代码中不硬编码检测模式
 - 新增规则必须同时更新：`rules/rules.yaml` + `docs/规则库V1.md`（保持同步）
-- 规则字段：`id` / `name` / `category` / `severity` / `weight` / `detection` / `pattern` / `rationale` / `false_positive_note`
+- 规则字段：`id` / `name` / `category` / `severity` / `weight` / `detection` / `patterns` / `rationale` / `false_positive_note`（与 ARCHITECTURE.md §3.1 一致，patterns 为列表）
 - severity 取值：critical / high / medium / low
 - **检出优先于精确**：宁可误报不可漏报（恶意技能漏检代价 >> 误报），后续用真实样本校准
 
@@ -78,13 +85,17 @@ skillguard/
 ## 当前阶段状态
 
 **阶段一（进行中）：静态审计 MVP**
-- [x] 规则库 V1（24 条规则，7 类攻击面）—— 见 `docs/规则库V1.md`
+
+> 当前里程碑（2026-08-13 起）：**引擎内核四件套**——`rules/rules.yaml`(V1 24 条) + `internal/rules` + `internal/parser` + `internal/analyzer` + `internal/report` + 单测/正反样本。CLI/LLM/Web 为下一里程碑。设计文档：`docs/superpowers/specs/2026-08-13-skillguard-engine-core-design.md`
+
+- [ ] 规则库 V1（24 条规则，7 类攻击面）—— 本次里程碑 M1 起草 `rules/rules.yaml` + `docs/规则库V1.md`
 - [ ] SKILL.md 解析器（`internal/parser`）
 - [ ] 规则引擎（`internal/rules`，加载 rules.yaml）
 - [ ] 静态分析器（`internal/analyzer`）
-- [ ] LLM 语义分析接入（`internal/llm`）
-- [ ] Web 页面（上传 → 报告）+ 基础风险评分（`cmd/server`）
-- [ ] CLI 工具（`cmd/audit`）
+- [ ] 报告生成（`internal/report`）
+- [ ] LLM 语义分析接入（`internal/llm`）—— 下一里程碑（引擎预留 detection: llm 队列）
+- [ ] Web 页面（上传 → 报告）+ 基础风险评分（`cmd/server`）—— 阶段二（ARCHITECTURE.md P1-2）
+- [ ] CLI 工具（`cmd/audit`）—— 下一里程碑
 
 **阶段二（未开始）**：沙箱动态执行（gVisor）+ Pro/Team 订阅 + 安全认证徽章
 **阶段三（未开始）**：企业版（私有化部署）+ 威胁情报月报
