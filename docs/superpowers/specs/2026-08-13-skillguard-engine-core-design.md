@@ -49,7 +49,7 @@
 | RS-021 | 依赖投毒特征 | SUPPLY_CHAIN | high | 75 | regex | 全局安装 / 篡改 lock 文件 / 安装不受信源 |
 | RS-022 | 二进制载荷分发 | SUPPLY_CHAIN | medium | 60 | regex | base64 解码写出 ELF/PE + `chmod +x` |
 | RS-023 | 解码执行链 | OBFSUSCATION | high | 70 | regex | `base64 -d \| sh` / eval + decode 链 |
-| RS-024 | 编码载荷 | OBFSUSCATION | medium | 55 | heuristic | 超长 base64/hex 字符串（≥200 字符） |
+| RS-024 | 编码载荷 | OBFSUSCATION | medium | 55 | regex | 超长 base64/hex 字符串（`[A-Za-z0-9+/=]{200,}` / `[0-9A-Fa-f]{200,}`） |
 
 统计：critical 7 / high 12 / medium 5；类别分布 5/3/4/4/3/3/2 = 24。
 
@@ -63,8 +63,8 @@ rules:
     category: CODE_EXECUTION
     severity: critical   # critical | high | medium | low
     weight: 95           # 0-100
-    detection: regex     # regex | heuristic | llm
-    patterns: []         # regexp2 语法；heuristic 规则可为空（引擎内置判据）
+    detection: regex     # regex | heuristic | llm；regex 与 heuristic 引擎同等对待（自动扫描 patterns）
+    patterns: []         # regexp2 语法；V1 的 24 条规则全为 regex/llm，无 heuristic
     rationale: 攻击原理说明
     false_positive_note: 误报提示
 ```
@@ -104,7 +104,7 @@ internal/report  （依赖 analyzer + rules）报告构建 + Markdown/JSON 渲�
 
 - `Analyze(files, root, rs)`：定位 SKILL.md → 解析 frontmatter → 遍历可扫描文件 × AutoDetectable 规则 → `Findings`；llm 规则 → `LLMReview`；返回 `Result{Findings, LLMReview, SkillMD, ScannedFiles, SkippedFiles}`
 - `ScanContent(content, rules, fileLabel)`：每条规则每文件只报首个命中（§3.1 约定），含行号 + 截断片段（≤200 字符）
-- 命中统计按规则维度保留（评分需要 category 最高权重）
+- `Score(findings)` 直接由 findings 携带的 (category, weight) 派生各维度 group_max_weight，无需额外统计
 
 ### 4.4 评分算法（ARCHITECTURE §6，完整实现）
 
