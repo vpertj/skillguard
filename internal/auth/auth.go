@@ -70,10 +70,11 @@ func ParseJWT(secret, token string) (*Claims, error) {
 }
 
 const (
-	keyPrefix   = "sk_live_"
-	keyRandHex  = 32 // 随机部分 32 hex 字符 = 128 bit
-	keyFullLen  = len(keyPrefix) + keyRandHex
-	keyShowPref = len(keyPrefix) + 8 // 展示前缀：sk_live_ + 前 8 hex
+	// APIKeyPrefix API Key 前缀（认证中间件据此区分 Key 与 JWT）。
+	APIKeyPrefix = "sk_live_"
+	keyRandHex   = 32 // 随机部分 32 hex 字符 = 128 bit
+	keyFullLen   = len(APIKeyPrefix) + keyRandHex
+	keyShowPref  = len(APIKeyPrefix) + 8 // 展示前缀：sk_live_ + 前 8 hex
 )
 
 // GenerateAPIKey 生成 API Key：返回明文、展示前缀、sha256 哈希。
@@ -83,7 +84,7 @@ func GenerateAPIKey() (plain, prefix, hash string, err error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", "", fmt.Errorf("生成随机数失败: %w", err)
 	}
-	plain = keyPrefix + hex.EncodeToString(buf)
+	plain = APIKeyPrefix + hex.EncodeToString(buf)
 	return plain, plain[:keyShowPref], HashAPIKey(plain), nil
 }
 
