@@ -27,7 +27,10 @@ go build -o skillguard ./cmd/audit
 # Web API：注册用户 → 生成 API Key → 上传技能包审计（按次计费）
 JWT_SECRET=<随机密钥> DATABASE_URL=postgres://tianjun@localhost:5432/skillguard_dev go run ./cmd/server
 
-# 运行全部测试（内核 38 项 + 数据层/API 测试，需本地 PostgreSQL）
+# Web 管理控制台（React19 + AntD6 SPA，浏览器访问 http://localhost:5173）
+cd web && pnpm install && pnpm dev
+
+# 运行全部测试（内核 57 项 + 数据层/API 测试，需本地 PostgreSQL）
 go test ./...
 ```
 

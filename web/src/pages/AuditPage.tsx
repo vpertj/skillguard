@@ -61,14 +61,14 @@ export default function AuditPage() {
           <p className="ant-upload-text">点击或拖拽技能包 zip 到此处上传审计</p>
           <p className="ant-upload-hint">支持 SKILL.md + 附属脚本的压缩包，审计后返回 0-100 风险评分与命中明细</p>
         </Upload.Dragger>
-        {auditMut.isPending && <Alert style={{ marginTop: 16 }} type="info" showIcon message="正在审计技能包，请稍候…" />}
-        {error && <Alert style={{ marginTop: 16 }} type="error" showIcon message={error} />}
+        {auditMut.isPending && <Alert style={{ marginTop: 16 }} type="info" showIcon title="正在审计技能包，请稍候…" />}
+        {error && <Alert style={{ marginTop: 16 }} type="error" showIcon title={error} />}
       </Card>
 
       {report && (
         <>
           {result?.cached && (
-            <Alert style={{ marginTop: 16 }} type="info" showIcon message="本次为缓存结果（同日同内容重复审计不计费）" />
+            <Alert style={{ marginTop: 16 }} type="info" showIcon title="本次为缓存结果（同日同内容重复审计不计费）" />
           )}
           <Row gutter={16} style={{ marginTop: 16 }}>
             <Col span={10}>

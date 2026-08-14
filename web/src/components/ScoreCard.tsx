@@ -12,7 +12,7 @@ const levelColor: Record<string, string> = {
 export default function ScoreCard({ score }: { score: ScoreResult }) {
   return (
     <Card title="风险评分" style={{ height: '100%' }}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           <Progress
             type="dashboard"
