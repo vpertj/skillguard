@@ -1,0 +1,318 @@
+# SkillGuard 规则库 V1（24 条规则，7 类攻击面）
+# 与 docs/规则库V1.md 同源：新增/修改规则必须同步更新两处。
+version: "1.0"
+rules:
+  - id: RS-001
+    name: 动态代码执行
+    category: CODE_EXECUTION
+    severity: critical
+    weight: 95
+    detection: regex
+    patterns:
+      - \beval\s*\(
+      - \bexec\s*\(
+      - \bcompile\s*\(
+    rationale: eval/exec/compile 是多数语言的动态代码执行入口，恶意技能用它执行任意载荷。
+    false_positive_note: 少数元编程/插件化代码会合法使用 eval，需结合上下文复核。
+
+  - id: RS-002
+    name: Shell 命令执行
+    category: CODE_EXECUTION
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - \b(?:bash|sh|zsh)\s+-c\b
+      - \bos\.system\s*\(
+      - \bsubprocess\.(?:Popen|run|call|check_output|check_call)\s*\(
+      - Runtime\.getRuntime\(\)\.exec\s*\(|\bProcessBuilder\s*\(
+      - child_process\.(?:exec|execSync|spawn|spawnSync)\s*\(
+    rationale: 直接调用系统 Shell 是执行任意命令、植入后门的常见通道。
+    false_positive_note: 合法的进程编排脚本也会用 subprocess/spawn，权重已考虑。
+
+  - id: RS-003
+    name: 远程脚本拉取执行
+    category: CODE_EXECUTION
+    severity: critical
+    weight: 95
+    detection: regex
+    patterns:
+      - (?:curl|wget)[^\n]*\|\s*(?:ba)?sh\b
+      - \bInvoke-Expression\b
+      - \biwr\s+[^|\n]*\|\s*iex\b
+    rationale: curl|bash 类模式把远程内容直接交给解释器，无任何校验，是供应链投毒的核心手法。
+    false_positive_note: 官方一键安装脚本也常用此模式，需核对域名是否可信。
+
+  - id: RS-004
+    name: 命令替换执行
+    category: CODE_EXECUTION
+    severity: high
+    weight: 80
+    detection: regex
+    patterns:
+      - '`[^`\n]+`'
+      - \$\([^)\n]+\)
+    rationale: 反引号/$() 命令替换可在普通字符串处理中隐藏命令执行。
+    false_positive_note: Makefile 的 $(VAR) 变量引用会误报，核对语言上下文。
+
+  - id: RS-005
+    name: 解释器调用执行
+    category: CODE_EXECUTION
+    severity: high
+    weight: 75
+    detection: regex
+    patterns:
+      - \bpython(?:3)?\s+-c\b
+      - \bnode(?:js)?\s+-e\b
+      - \bpowershell(?:\.exe)?\s+-(?:Command|EncodedCommand)\b
+      - \b(?:perl|ruby)\s+-e\b
+    rationale: 解释器 -c/-e 参数可直接执行内联代码，是绕过脚本文件检测的常用方式。
+    false_positive_note: 开发调试时也会内联执行，权重适中。
+
+  - id: RS-006
+    name: 计划任务与服务持久化
+    category: PERSISTENCE
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - \bcrontab\b
+      - \b(?:launchctl|launchd)\b
+      - \bsystemctl\b
+      - \bschtasks\b
+      - \bat\s+\d{1,2}:\d{2}\b
+    rationale: 写入计划任务/系统服务让恶意代码开机自启、长期驻留。
+    false_positive_note: 合法的运维脚本会管理服务，需看是否伴随可疑命令。
+
+  - id: RS-007
+    name: Shell 配置写入
+    category: PERSISTENCE
+    severity: high
+    weight: 85
+    detection: regex
+    patterns:
+      - (?:>>|tee\s+-a)[^\n]*\.(?:bashrc|zshrc|profile|bash_profile|rc\.local)\b
+      - (?:\>\s*)[^\n]*\.(?:bashrc|zshrc|profile|bash_profile|rc\.local)\b
+    rationale: 向 shell 配置文件追加/覆盖内容，可在用户每次登录时执行恶意命令。
+    false_positive_note: 环境配置类技能会修改 shell 配置，需结合写入内容判断。
+
+  - id: RS-008
+    name: 登录项自启动
+    category: PERSISTENCE
+    severity: high
+    weight: 80
+    detection: regex
+    patterns:
+      - Launch(?:Agent|Daemon)s?\b
+      - (?:HKCU|HKEY_CURRENT_USER)[^\n]*CurrentVersion\\Run\b
+      - \bStartupItems\b
+    rationale: LaunchAgent/注册表 Run 键/启动项目录是 macOS 与 Windows 的经典持久化点。
+    false_positive_note: 正经软件安装器也会注册自启动，需看是否指向可疑路径。
+
+  - id: RS-009
+    name: 敏感文件读取
+    category: DATA_THEFT
+    severity: critical
+    weight: 95
+    detection: regex
+    patterns:
+      - \.ssh/(?:id_rsa|id_ed25519|id_dsa|authorized_keys|known_hosts)\b|\bid_rsa\b|\bid_ed25519\b
+      - \.aws/(?:credentials|config)\b
+      - \.env(?:\.\w+)?\b
+      - \bkeychain\b
+    rationale: SSH 私钥、云凭据、环境变量文件是攻击者窃取的首选目标。
+    false_positive_note: 密钥管理类技能会合法访问此类文件，需看是否伴随外传。
+
+  - id: RS-010
+    name: 环境变量转储
+    category: DATA_THEFT
+    severity: high
+    weight: 70
+    detection: regex
+    patterns:
+      - \bprintenv\b
+      - \bos\.environ\b
+      - \bprocess\.env\b
+      - \bgetenv\s*\(
+      - \bGetEnvironmentVariable\b
+    rationale: 环境变量常含 token/密钥，全量转储是数据窃取的常见前置动作。
+    false_positive_note: 应用读取单个环境变量属正常行为，全量转储才可疑，权重已压低。
+
+  - id: RS-011
+    name: 浏览器与密码库数据
+    category: DATA_THEFT
+    severity: high
+    weight: 85
+    detection: regex
+    patterns:
+      - (?i)(?:chrome|firefox)[^\n]*cookie
+      - cookies\.sqlite|Login Data
+      - \b(?:LastPass|1Password|Bitwarden)\b
+    rationale: 浏览器 Cookie/登录态与密码管理器数据是账号窃取的高价值目标。
+    false_positive_note: 浏览器数据迁移工具会访问此类文件，需结合上传行为判断。
+
+  - id: RS-012
+    name: 剪贴板与键盘记录
+    category: DATA_THEFT
+    severity: medium
+    weight: 60
+    detection: regex
+    patterns:
+      - \b(?:pbcopy|pbpaste|xclip|xsel)\b
+      - (?:Get|Set)-Clipboard\b
+      - \bkeylog(?:ger|ging)?\b
+      - \b(?:onKeyDown|onKeyPress|onKeyUp|keydown|keypress|keyup)\b
+    rationale: 剪贴板劫持与键盘事件监听可窃取密码、双因素码等敏感输入。
+    false_positive_note: 剪贴板工具/游戏类脚本会命中，medium 权重，需组合其他信号。
+
+  - id: RS-013
+    name: HTTP 数据外传
+    category: NETWORK_EXFIL
+    severity: high
+    weight: 85
+    detection: regex
+    patterns:
+      - curl\s+[^\n]*(?:-d\b|--data(?:-binary|-raw)?\b|--upload-file\b|-T\b|--form\b|-F\b)
+      - (?:requests|axios|httpx)\.(?:post|put)\s*\(
+      - \bInvoke-RestMethod\b
+    rationale: 主动向外部发送数据（POST/上传）是窃取数据后的必经外传路径。
+    false_positive_note: 正常 API 调用也大量使用 POST，需结合目标域名与发送内容判断。
+
+  - id: RS-014
+    name: DNS 外传通道
+    category: NETWORK_EXFIL
+    severity: high
+    weight: 80
+    detection: regex
+    patterns:
+      - \b(?:dig|nslookup)\s+[^\n]*\bTXT\b
+      - \b(?:dnscat2?|iodine|DnsExfiltrator)\b
+    rationale: DNS TXT 查询与隧道工具可绕过出站防火墙外传数据。
+    false_positive_note: 域名诊断工具也查 TXT 记录，需看查询内容是否编码数据。
+
+  - id: RS-015
+    name: 反向 Shell 与 C2
+    category: NETWORK_EXFIL
+    severity: critical
+    weight: 95
+    detection: regex
+    patterns:
+      - /dev/tcp/
+      - \b(?:nc|netcat|ncat)\s+[^\n]*-e\b
+      - \bsocat\b[^\n]*\bEXEC:
+      - \breverse[\s_-]?shell\b
+      - \b(?:bash|sh)\s+-i\b
+    rationale: 反向 shell 让攻击者获得交互式远程控制，是最严重的网络行为之一。
+    false_positive_note: 渗透测试技能会合法包含，报告需人工确认授权。
+
+  - id: RS-016
+    name: 明文协议外传
+    category: NETWORK_EXFIL
+    severity: high
+    weight: 70
+    detection: regex
+    patterns:
+      - \b(?:curl|wget)[^\n]*\bhttp://
+      - \b(?:ftp|telnet|rsh|rlogin)\b
+    rationale: 明文 HTTP/FTP/Telnet 传输可被中间人截获，数据有泄露风险。
+    false_positive_note: 内网下载资源常见 http://，需结合敏感数据上下文。
+
+  - id: RS-017
+    name: 提示注入指令
+    category: PROMPT_INJECTION
+    severity: high
+    weight: 80
+    detection: regex
+    patterns:
+      - ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions
+      - 忽略(?:以上|之前|上述)?(?:所有)?(?:指令|命令)
+      - disregard\s+(?:all\s+)?(?:previous|prior)
+      - override\s+[^\n]{0,40}system\s+prompt
+    rationale: 注入指令试图覆盖 Agent 的系统提示，控制 Agent 行为执行隐藏操作。
+    false_positive_note: 安全研究文档可能引用此类措辞，需结合出现位置判断。
+
+  - id: RS-018
+    name: 角色伪装
+    category: PROMPT_INJECTION
+    severity: medium
+    weight: 55
+    detection: llm
+    patterns: []
+    rationale: 技能声明自己的身份（官方、系统级、可信厂商）与其实际行为不符时判定为伪装。
+    false_positive_note: 仅凭声明无法定罪，需 LLM 比对声明与行为，进入 llm_review_rules 队列。
+
+  - id: RS-019
+    name: 声明-行为不一致
+    category: PROMPT_INJECTION
+    severity: medium
+    weight: 60
+    detection: llm
+    patterns: []
+    rationale: 文档声称无害（只读文件、不联网）但代码含危险操作时判定为欺骗性声明。
+    false_positive_note: 需 LLM 交叉比对 SKILL.md 声明与脚本行为，进入 llm_review_rules 队列。
+
+  - id: RS-020
+    name: 未校验来源下载安装
+    category: SUPPLY_CHAIN
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - pip(?:3)?\s+install\s+[^\n]*\b(?:https?://|git\+)
+      - npm\s+install\s+[^\n]*\b(?:https?://|github)
+      - (?:curl|wget)\s+[^\n]*-[oO]\s+[^\n]*\bhttps?://
+      - Invoke-WebRequest\s+[^\n]*-OutFile
+    rationale: 从非官方源直接下载安装可引入被投毒/替换的组件。
+    false_positive_note: 私有镜像源部署脚本会命中，需核对源是否组织可信。
+
+  - id: RS-021
+    name: 依赖投毒特征
+    category: SUPPLY_CHAIN
+    severity: high
+    weight: 75
+    detection: regex
+    patterns:
+      - npm\s+install\s+(?:-g|--global)\b
+      - (?:package-lock\.json|Pipfile\.lock)[^\n]*(?:rm\b|rm\s+-f|del\b|overwrite)
+      - pip\s+install\s+[^\n]*(?:--index-url|-i\b|--extra-index-url)
+    rationale: 全局安装、篡改锁文件、替换包源是依赖投毒/版本回退的典型特征。
+    false_positive_note: monorepo 统一环境脚本会命中，需结合是否有后续执行动作。
+
+  - id: RS-022
+    name: 二进制载荷分发
+    category: SUPPLY_CHAIN
+    severity: medium
+    weight: 60
+    detection: regex
+    patterns:
+      - base64\s+-(?:d|--decode)\b
+      - \[Convert\]::FromBase64String
+      - chmod\s+\+x\b
+    rationale: base64 解码写出可执行文件是分发隐藏二进制载荷的常见手段。
+    false_positive_note: 配置解码、证书安装脚本也常见 base64 -d，medium 权重。
+
+  - id: RS-023
+    name: 解码执行链
+    category: OBFSUSCATION
+    severity: high
+    weight: 70
+    detection: regex
+    patterns:
+      - base64\s+-(?:d|--decode)[^\n]*\|
+      - (?:base64|b64decode|atob|fromhex|unhexlify)[^\n]*\|\s*(?:sh|bash)\b
+      - \b(?:eval|exec)\s*\(\s*(?:base64|b64decode|atob|fromhex|unhexlify)
+    rationale: 解码后立即执行是静态检测绕过的核心手法，内容经编码隐藏。
+    false_positive_note: 少量合法的配置解码脚本会命中，需看解码输出是否被执行。
+
+  - id: RS-024
+    name: 编码载荷
+    category: OBFSUSCATION
+    severity: medium
+    weight: 55
+    detection: regex
+    patterns:
+      - '[A-Za-z0-9+/]{200,}={0,2}'
+      - '[0-9A-Fa-f]{200,}'
+      - '(?:\\x[0-9A-Fa-f]{2}){50,}'
+    rationale: 超长 base64/hex 载荷暗示隐藏的可执行内容或编码后的恶意脚本。
+    false_positive_note: 内嵌资源（图片、字体）也以 base64 出现，medium 权重。
