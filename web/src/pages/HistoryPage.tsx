@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Card, Table, Tag, Typography } from 'antd'
+import { Button, Card, Modal, Table, Tag, Typography } from 'antd'
+import { EyeOutlined } from '@ant-design/icons'
 import { auditApi } from '../api/client'
-import type { AuditBrief } from '../api/types'
+import type { AuditBrief, Report } from '../api/types'
+import ReportView from '../components/ReportView'
 
 const levelColor: Record<string, string> = {
   safe: 'green',
@@ -19,6 +22,12 @@ const levelText: Record<string, string> = {
 
 export default function HistoryPage() {
   const { data, isLoading } = useQuery({ queryKey: ['audits'], queryFn: auditApi.history })
+  const [viewing, setViewing] = useState<AuditBrief | null>(null)
+  const { data: detail, isLoading: detailLoading } = useQuery({
+    queryKey: ['audit-detail', viewing?.id],
+    queryFn: () => auditApi.detail(viewing!.id),
+    enabled: !!viewing,
+  })
 
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 70 },
@@ -39,6 +48,15 @@ export default function HistoryPage() {
       render: (v: string) => <Tag color={levelColor[v] ?? 'default'}>{levelText[v] ?? v}</Tag>,
     },
     { title: '审计时间', dataIndex: 'created_at' },
+    {
+      title: '操作',
+      width: 110,
+      render: (_: unknown, record: AuditBrief) => (
+        <Button size="small" icon={<EyeOutlined />} onClick={() => setViewing(record)}>
+          查看报告
+        </Button>
+      ),
+    },
   ]
 
   return (
@@ -54,6 +72,30 @@ export default function HistoryPage() {
           locale={{ emptyText: '暂无审计记录' }}
         />
       </Card>
+
+      <Modal
+        open={!!viewing}
+        onCancel={() => setViewing(null)}
+        footer={null}
+        width={1000}
+        title={
+          viewing ? (
+            <span>
+              审计报告 #{viewing.id} ——{' '}
+              <Tag color={levelColor[viewing.level_key] ?? 'default'}>{levelText[viewing.level_key] ?? viewing.level_key}</Tag>
+              {viewing.score !== undefined && viewing.score !== null ? <b> {viewing.score} 分</b> : null}
+            </span>
+          ) : null
+        }
+      >
+        {detailLoading ? (
+          <Typography.Paragraph type="secondary">加载报告中…</Typography.Paragraph>
+        ) : detail ? (
+          <ReportView report={detail.report as Report} llmResults={detail.llm_results} />
+        ) : (
+          <Typography.Paragraph type="danger">报告加载失败</Typography.Paragraph>
+        )}
+      </Modal>
     </div>
   )
 }

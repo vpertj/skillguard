@@ -1,5 +1,5 @@
 // fetch 封装：自动带 Bearer token、JSON 解析、统一错误
-import type { AdminUserListResp, AuthResp, AuditListResp, AuditResp, CreateKeyResp, DeepSeekSettings, KeyListResp, UsageResp } from './types'
+import type { AdminUserListResp, AuditDetailResp, AuditListResp, AuditResp, AuthResp, CreateKeyResp, DeepSeekSettings, KeyListResp, UsageResp } from './types'
 
 const TOKEN_KEY = 'sg_token'
 
@@ -84,6 +84,7 @@ export const auditApi = {
     return api<AuditResp>('/audit/deep', { method: 'POST', form })
   },
   history: () => api<AuditListResp>('/audits'),
+  detail: (id: number) => api<AuditDetailResp>(`/audits/${id}`),
 }
 
 export const usageApi = {

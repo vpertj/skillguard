@@ -112,6 +112,11 @@ export interface AuditBrief {
   created_at: string
 }
 
+export interface AuditDetailResp {
+  report: Report
+  llm_results?: LLMResult[]
+}
+
 export interface AuditListResp {
   audits: AuditBrief[]
 }

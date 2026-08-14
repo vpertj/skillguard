@@ -43,7 +43,7 @@ export default function AdminSettingsPage() {
           <Form form={form} layout="vertical" onFinish={(v: { api_key: string }) => saveMut.mutate(v.api_key.trim())}>
             <Form.Item
               name="api_key"
-              label="DeepSeek API Key"
+              label={data?.configured ? '更新 DeepSeek API Key' : 'DeepSeek API Key'}
               rules={[{ required: true, message: '请输入 API Key' }, { pattern: /^sk-/, message: 'Key 应以 sk- 开头' }]}
               extra="加密存储（AES-GCM），保存后立即生效，无需重启服务"
             >
@@ -51,12 +51,12 @@ export default function AdminSettingsPage() {
             </Form.Item>
             <Space>
               <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saveMut.isPending}>
-                保存并启用
+                {data?.configured ? '更新 Key' : '保存并启用'}
               </Button>
               {data?.configured && (
-                <Popconfirm title="停用后用户将无法使用深度分析，确认？" onConfirm={() => saveMut.mutate('')}>
+                <Popconfirm title="删除后深度分析立即停用，确认删除配置？" onConfirm={() => saveMut.mutate('')}>
                   <Button danger icon={<StopOutlined />}>
-                    停用深度分析
+                    删除配置
                   </Button>
                 </Popconfirm>
               )}
