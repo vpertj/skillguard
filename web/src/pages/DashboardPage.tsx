@@ -26,7 +26,8 @@ export default function DashboardPage() {
   const { data: usage } = useQuery({ queryKey: ['usage'], queryFn: usageApi.get })
   const { data: history } = useQuery({ queryKey: ['audits'], queryFn: auditApi.history })
 
-  const usedPct = usage ? Math.min(100, Math.round((usage.used / Math.max(1, usage.quota)) * 100)) : 0
+  const staticUsedPct = usage ? Math.min(100, Math.round((usage.static_audit.used / Math.max(1, usage.static_audit.quota)) * 100)) : 0
+  const llmUsedPct = usage ? Math.min(100, Math.round((usage.llm_review.used / Math.max(1, usage.llm_review.quota)) * 100)) : 0
 
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
@@ -52,19 +53,25 @@ export default function DashboardPage() {
     <div>
       <Typography.Title level={4}>仪表盘</Typography.Title>
       <Row gutter={16}>
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Statistic title="账户" value={user?.email ?? '-'} prefix={<ThunderboltOutlined />} />
             <Typography.Text type="secondary">角色：{user?.role ?? '-'}</Typography.Text>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
           <Card>
-            <Statistic title="免费配额用量" value={usage ? `${usage.used} / ${usage.quota}` : '-'} suffix="次" />
-            <Progress percent={usedPct} status={usedPct >= 100 ? 'exception' : 'active'} size="small" />
+            <Statistic title="静态审计配额" value={usage ? `${usage.static_audit.used} / ${usage.static_audit.quota}` : '-'} suffix="次" />
+            <Progress percent={staticUsedPct} status={staticUsedPct >= 100 ? 'exception' : 'active'} size="small" />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
+          <Card>
+            <Statistic title="深度分析配额" value={usage ? `${usage.llm_review.used} / ${usage.llm_review.quota}` : '-'} suffix="次" />
+            <Progress percent={llmUsedPct} status={llmUsedPct >= 100 ? 'exception' : 'active'} size="small" />
+          </Card>
+        </Col>
+        <Col span={6}>
           <Card onClick={() => navigate('/audit')} style={{ cursor: 'pointer' }}>
             <Statistic title="快速操作" value="上传技能审计" prefix={<SafetyCertificateOutlined />} />
             <Typography.Text type="secondary">点击进入审计页</Typography.Text>

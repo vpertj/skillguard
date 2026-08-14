@@ -77,6 +77,12 @@ export const auditApi = {
     form.append('file', file)
     return api<AuditResp>('/audit', { method: 'POST', form })
   },
+  // 付费档：静态 + LLM 语义分析（按 llm_review 计费）
+  deep: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api<AuditResp>('/audit/deep', { method: 'POST', form })
+  },
   history: () => api<AuditListResp>('/audits'),
 }
 

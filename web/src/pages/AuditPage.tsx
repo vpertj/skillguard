@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App as AntApp, Alert, Card, Col, Collapse, Descriptions, Row, Tag, Typography, Upload } from 'antd'
-import { InboxOutlined } from '@ant-design/icons'
+import { App as AntApp, Alert, Card, Col, Collapse, Descriptions, Radio, Row, Space, Tag, Typography, Upload } from 'antd'
+import { InboxOutlined, RobotOutlined } from '@ant-design/icons'
 import { auditApi } from '../api/client'
-import type { AuditResp, Report } from '../api/types'
+import type { AuditResp, LLMResult, Report } from '../api/types'
 import ScoreCard from '../components/ScoreCard'
 import FindingsTable from '../components/FindingsTable'
 
@@ -14,14 +14,21 @@ const levelColor: Record<string, string> = {
   malicious: 'volcano',
 }
 
+const verdictTag: Record<string, { color: string; text: string }> = {
+  suspicious: { color: 'volcano', text: '可疑' },
+  clean: { color: 'green', text: '正常' },
+  unknown: { color: 'default', text: '无法判定' },
+}
+
 export default function AuditPage() {
   const { message } = AntApp.useApp()
   const queryClient = useQueryClient()
   const [result, setResult] = useState<AuditResp | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deepMode, setDeepMode] = useState(false)
 
   const auditMut = useMutation({
-    mutationFn: (file: File) => auditApi.upload(file),
+    mutationFn: (file: File) => (deepMode ? auditApi.deep(file) : auditApi.upload(file)),
     onSuccess: (resp) => {
       setResult(resp)
       setError(null)
@@ -41,6 +48,19 @@ export default function AuditPage() {
     <div>
       <Typography.Title level={4}>技能审计</Typography.Title>
       <Card>
+        <Space style={{ marginBottom: 16 }}>
+          <Radio.Group value={deepMode} onChange={(e) => setDeepMode(e.target.value)} optionType="button" buttonStyle="solid">
+            <Radio.Button value={false}>标准审计（免费）</Radio.Button>
+            <Radio.Button value={true}>
+              <RobotOutlined /> 深度分析（LLM 语义检测）
+            </Radio.Button>
+          </Radio.Group>
+          {deepMode && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              额外检测角色伪装 / 声明-行为不一致，消耗深度分析配额
+            </Typography.Text>
+          )}
+        </Space>
         <Upload.Dragger
           accept=".zip"
           maxCount={1}
@@ -94,6 +114,24 @@ export default function AuditPage() {
           <Card title={`命中明细（${report.findings.length}）`} style={{ marginTop: 16 }}>
             <FindingsTable findings={report.findings} />
           </Card>
+
+          {result?.llm_results && result.llm_results.length > 0 && (
+            <Card title="LLM 语义分析（深度分析）" style={{ marginTop: 16 }}>
+              {result.llm_results.map((r: LLMResult) => (
+                <div key={r.rule_id} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <Space>
+                    <Typography.Text strong>{r.rule_id}</Typography.Text>
+                    <Typography.Text>{r.rule_id === 'RS-018' ? '角色伪装' : '声明-行为不一致'}</Typography.Text>
+                    <Tag color={verdictTag[r.verdict]?.color}>{verdictTag[r.verdict]?.text ?? r.verdict}</Tag>
+                    {r.confidence && <Typography.Text type="secondary" style={{ fontSize: 12 }}>置信度：{r.confidence}</Typography.Text>}
+                  </Space>
+                  <Typography.Paragraph style={{ margin: '4px 0 0', fontSize: 13 }}>
+                    {r.reason || '（无说明）'}
+                  </Typography.Paragraph>
+                </div>
+              ))}
+            </Card>
+          )}
 
           {report.llm_review_rules.length > 0 && (
             <Card title="待 LLM 复核规则" style={{ marginTop: 16 }}>

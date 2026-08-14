@@ -92,6 +92,15 @@ export interface Report {
 export interface AuditResp {
   cached: boolean
   report: Report
+  llm_results?: LLMResult[]
+}
+
+// LLM 语义分析判定结果（RS-018/RS-019）
+export interface LLMResult {
+  rule_id: string
+  verdict: 'suspicious' | 'clean' | 'unknown'
+  confidence: string
+  reason: string
 }
 
 export interface AuditBrief {
@@ -106,10 +115,14 @@ export interface AuditListResp {
   audits: AuditBrief[]
 }
 
-export interface UsageResp {
-  kind: string
+export interface UsageItem {
   used: number
   quota: number
+}
+
+export interface UsageResp {
+  static_audit: UsageItem
+  llm_review: UsageItem
 }
 
 export interface KeyListResp {
