@@ -196,3 +196,70 @@ func TestQuotaExceededReturnsError(t *testing.T) {
 }
 
 var _ = time.Now // 保留 time 引用（后续迁移测试可能用到）
+
+func TestListUsersAndAdminUpdate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u1, _ := s.CreateUser(ctx, "admin1@example.com", "h", "user")
+	u2, _ := s.CreateUser(ctx, "user1@example.com", "h", "user")
+
+	users, err := s.ListUsers(ctx, 10)
+	if err != nil || len(users) != 2 {
+		t.Fatalf("ListUsers = %d 条, err=%v, want 2", len(users), err)
+	}
+
+	// 提升 + 改配额
+	qAudits, qLLM := 500, 50
+	role := "admin"
+	if err := s.UpdateUserAdmin(ctx, u1.ID, &qAudits, &qLLM, &role); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetUserByID(ctx, u1.ID)
+	if got.Role != "admin" || got.QuotaAudits != 500 || got.QuotaLLMReviews != 50 {
+		t.Errorf("更新后 = %+v", got)
+	}
+	// 不动 u2
+	got2, _ := s.GetUserByID(ctx, u2.ID)
+	if got2.Role != "user" || got2.QuotaAudits != 100 {
+		t.Errorf("u2 不应被改: %+v", got2)
+	}
+	// 部分更新：只改配额不改角色（nil 字段跳过）
+	qAudits2 := 999
+	if err := s.UpdateUserAdmin(ctx, u2.ID, &qAudits2, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ = s.GetUserByID(ctx, u2.ID)
+	if got2.QuotaAudits != 999 || got2.Role != "user" {
+		t.Errorf("部分更新 = %+v", got2)
+	}
+	// 不存在用户报错
+	if err := s.UpdateUserAdmin(ctx, 99999, &qAudits, nil, nil); err == nil {
+		t.Error("不存在用户应报错")
+	}
+}
+
+func TestPromoteAdmins(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	s.CreateUser(ctx, "boss@example.com", "h", "user")
+	s.CreateUser(ctx, "other@example.com", "h", "user")
+
+	n, err := s.PromoteAdmins(ctx, []string{"boss@example.com"})
+	if err != nil || n != 1 {
+		t.Fatalf("PromoteAdmins = %d, err=%v, want 1", n, err)
+	}
+	boss, _ := s.GetUserByEmail(ctx, "boss@example.com")
+	if boss.Role != "admin" {
+		t.Errorf("boss.role = %q, want admin", boss.Role)
+	}
+	other, _ := s.GetUserByEmail(ctx, "other@example.com")
+	if other.Role != "user" {
+		t.Errorf("other.role = %q, want user", other.Role)
+	}
+	// 幂等：再跑一次仍 1 条（不重复计数？返回受影响行，重复提升影响 0 行——预期行为：仍返回 1？）
+	// 实现用 UPDATE ... WHERE role <> 'admin'，第二次影响 0 行，返回 0
+	n2, _ := s.PromoteAdmins(ctx, []string{"boss@example.com"})
+	if n2 != 0 {
+		t.Errorf("二次提升 = %d, want 0（已是 admin 不再更新）", n2)
+	}
+}

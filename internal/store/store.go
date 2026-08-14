@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -382,4 +383,71 @@ func (s *Store) QuotaExceeded(ctx context.Context, userID int64, kind string) (b
 		return false, fmt.Errorf("查询配额失败: %w", err)
 	}
 	return used >= quota, nil
+}
+
+// ListUsers 列出用户（id 升序）。
+func (s *Store) ListUsers(ctx context.Context, limit int) ([]User, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, email, password_hash, role, quota_audits, quota_llm_reviews, created_at
+		 FROM users ORDER BY id LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("查询用户列表失败: %w", err)
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.QuotaLLMReviews, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// UpdateUserAdmin 管理员更新用户：配额/角色，nil 字段跳过；用户不存在返回 ErrNotFound。
+func (s *Store) UpdateUserAdmin(ctx context.Context, userID int64, quotaAudits, quotaLLM *int, role *string) error {
+	sets := []string{}
+	args := []any{}
+	if quotaAudits != nil {
+		args = append(args, *quotaAudits)
+		sets = append(sets, fmt.Sprintf("quota_audits = $%d", len(args)))
+	}
+	if quotaLLM != nil {
+		args = append(args, *quotaLLM)
+		sets = append(sets, fmt.Sprintf("quota_llm_reviews = $%d", len(args)))
+	}
+	if role != nil {
+		if *role != "user" && *role != "admin" {
+			return fmt.Errorf("角色非法: %q（仅 user/admin）", *role)
+		}
+		args = append(args, *role)
+		sets = append(sets, fmt.Sprintf("role = $%d", len(args)))
+	}
+	if len(sets) == 0 {
+		return fmt.Errorf("没有可更新的字段")
+	}
+	args = append(args, userID)
+	tag, err := s.pool.Exec(ctx,
+		fmt.Sprintf(`UPDATE users SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)
+	if err != nil {
+		return fmt.Errorf("更新用户失败: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// PromoteAdmins 将指定邮箱提升为 admin（已为 admin 的不重复更新），返回本次提升数量。
+func (s *Store) PromoteAdmins(ctx context.Context, emails []string) (int, error) {
+	if len(emails) == 0 {
+		return 0, nil
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users SET role = 'admin' WHERE email = ANY($1) AND role <> 'admin'`, emails)
+	if err != nil {
+		return 0, fmt.Errorf("提升管理员失败: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
