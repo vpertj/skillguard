@@ -25,6 +25,7 @@ go build -o skillguard ./cmd/audit
 ./skillguard audit ./path/to/skill --json -o report.json
 
 # Web API：注册用户 → 生成 API Key → 上传技能包审计（按次计费）
+# ADMIN_EMAILS=admin@example.com 启动时将该邮箱提升为管理员（可在后台管理用户配额与 DeepSeek Key）
 JWT_SECRET=<随机密钥> DATABASE_URL=postgres://tianjun@localhost:5432/skillguard_dev go run ./cmd/server
 
 # Web 管理控制台（React19 + AntD6 SPA，浏览器访问 http://localhost:5173）

@@ -99,6 +99,7 @@ skillguard/
 - [x] Web API（`cmd/server`，Gin）：注册/登录 JWT + API Key 管理 + POST /v1/audit + 用量配额
 - [x] 数据层（`internal/store`，PG 迁移 + 用户/Key/审计/用量）
 - [x] LLM 语义分析（`internal/llm`，DeepSeek Provider）：`POST /v1/audit/deep` 付费档，llm_review 独立配额计费
+- [x] 管理后台（A1-A4）：管理员权限体系 + 用户/配额管理（`/v1/admin/users`）+ DeepSeek Key 后台配置（加密存储 + 热更新，`/v1/admin/settings/deepseek`）；`ADMIN_EMAILS` 环境变量启动自举管理员
 - [ ] asynq 异步化（需 Redis）+ 账单出账（Stripe 类）—— 并发量/商业化后置
 
 **阶段二（未开始）**：沙箱动态执行（gVisor）+ Pro/Team 订阅 + 安全认证徽章
