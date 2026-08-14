@@ -199,7 +199,7 @@ rules:
     patterns:
       - /dev/tcp/
       - \b(?:nc|netcat|ncat)\s+[^\n]*-e\b
-      - \bsocat\b[^\n]*\bEXEC:
+      - '\bsocat\b[^\n]*\bEXEC:'
       - \breverse[\s_-]?shell\b
       - \b(?:bash|sh)\s+-i\b
     rationale: 反向 shell 让攻击者获得交互式远程控制，是最严重的网络行为之一。
