@@ -18,7 +18,8 @@ func testDSN() string {
 	if dsn := os.Getenv("SKILLGUARD_TEST_DSN"); dsn != "" {
 		return dsn
 	}
-	return "postgres://tianjun@localhost:5432/skillguard_test?sslmode=disable"
+	// 独立测试库：go test ./... 包级并行时避免与 store 包测试互相 Reset
+	return "postgres://tianjun@localhost:5432/skillguard_httpapi_test?sslmode=disable"
 }
 
 func newTestRouter(t *testing.T) (*gin.Engine, *store.Store) {

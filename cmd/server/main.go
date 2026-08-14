@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/tianjun/skillguard/internal/httpapi"
+	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
 
@@ -44,7 +45,13 @@ func main() {
 	}
 	log.Printf("数据库迁移完成: %s", dsn)
 
-	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret})
+	rs, err := rules.LoadRules("rules/rules.yaml")
+	if err != nil {
+		log.Fatalf("加载规则库失败: %v", err)
+	}
+	log.Printf("规则库加载完成: %s", rs.Summary())
+
+	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret, Rules: rs})
 	srv := &http.Server{Addr: ":" + port, Handler: router}
 	log.Printf("SkillGuard API 启动于 http://localhost:%s", port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

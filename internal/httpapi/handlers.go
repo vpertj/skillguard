@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tianjun/skillguard/internal/auth"
+	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
 
@@ -18,6 +19,7 @@ import (
 type Deps struct {
 	Store     *store.Store
 	JWTSecret string
+	Rules     *rules.RuleSet
 }
 
 const (
@@ -44,6 +46,8 @@ func NewRouter(d Deps) *gin.Engine {
 			authed.POST("/keys", d.handleCreateKey)
 			authed.GET("/keys", d.handleListKeys)
 			authed.DELETE("/keys/:id", d.handleRevokeKey)
+			authed.POST("/audit", d.handleAudit)
+			authed.GET("/audits", d.handleListAudits)
 		}
 	}
 	return r
