@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tianjun/skillguard/internal/analyzer"
@@ -53,7 +54,10 @@ func (d Deps) handleAudit(c *gin.Context) {
 		abort(c, http.StatusBadRequest, "技能包格式无法解析（需为 zip）")
 		return
 	}
-	defer os.RemoveAll(root)
+	// 仅 zip 输入才解压到独立临时目录需要清理；非 zip 内容走单文件分支时 root 指向系统临时目录，绝不能删
+	if strings.EqualFold(filepath.Ext(tmp.Name()), ".zip") {
+		defer os.RemoveAll(root)
+	}
 
 	// 内容哈希（去重缓存键）
 	hash, err := skillHash(files, root)
