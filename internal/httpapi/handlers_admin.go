@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tianjun/skillguard/internal/cryptx"
 	"github.com/tianjun/skillguard/internal/store"
 )
 
@@ -79,4 +81,70 @@ func (d Deps) handleAdminUpdateUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// handleGetDeepSeekSettings 查询 DeepSeek 配置状态（不回传 key 明文）。
+func (d Deps) handleGetDeepSeekSettings(c *gin.Context) {
+	configured := d.LLM != nil && d.LLM.Enabled()
+	model := ""
+	baseURL := ""
+	if d.LLM != nil {
+		model = d.LLM.Model()
+	}
+	if configured {
+		baseURL = "https://api.deepseek.com"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"configured": configured,
+		"model":      model,
+		"base_url":   baseURL,
+	})
+}
+
+// handlePutDeepSeekSettings 配置/更新 DeepSeek API Key（加密存库 + 热更新）。
+// 传空 api_key 表示停用深度分析。
+func (d Deps) handlePutDeepSeekSettings(c *gin.Context) {
+	var req struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, "请求体非法")
+		return
+	}
+	req.APIKey = strings.TrimSpace(req.APIKey)
+
+	if req.APIKey == "" {
+		// 停用：清空库中配置 + 停用注册表
+		if err := d.Store.SetSetting(c.Request.Context(), "deepseek_api_key", ""); err != nil {
+			abort(c, http.StatusInternalServerError, "保存设置失败")
+			return
+		}
+		if d.LLM != nil {
+			d.LLM.Disable()
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "configured": false})
+		return
+	}
+	if !strings.HasPrefix(req.APIKey, "sk-") {
+		abort(c, http.StatusBadRequest, "API Key 格式非法（应以 sk- 开头）")
+		return
+	}
+	enc, err := cryptx.Encrypt(d.JWTSecret, req.APIKey)
+	if err != nil {
+		abort(c, http.StatusInternalServerError, "加密失败")
+		return
+	}
+	if err := d.Store.SetSetting(c.Request.Context(), "deepseek_api_key", enc); err != nil {
+		abort(c, http.StatusInternalServerError, "保存设置失败")
+		return
+	}
+	if d.LLM == nil {
+		abort(c, http.StatusInternalServerError, "LLM 注册表未初始化")
+		return
+	}
+	if err := d.LLM.UpdateKey(req.APIKey); err != nil {
+		abort(c, http.StatusBadRequest, fmt.Sprintf("更新失败: %v", err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "configured": true, "model": d.LLM.Model()})
 }

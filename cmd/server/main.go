@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/tianjun/skillguard/internal/cryptx"
 	"github.com/tianjun/skillguard/internal/httpapi"
 	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/rules"
@@ -52,20 +54,38 @@ func main() {
 	}
 	log.Printf("规则库加载完成: %s", rs.Summary())
 
-	// LLM 深度分析（付费档）：配置了 DEEPSEEK_API_KEY 才启用，未配置时深度接口返回 503
-	var llmProvider llm.Provider
+	// LLM 深度分析（付费档）：优先级 环境变量 DEEPSEEK_API_KEY > 库中 settings（管理员后台配置）
+	registry := llm.NewRegistry()
 	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
-		ds, err := llm.NewDeepSeek(apiKey)
-		if err != nil {
-			log.Fatalf("初始化 DeepSeek 失败: %v", err)
+		registry.Enable(apiKey, "", "")
+		log.Printf("LLM 深度分析已启用（环境变量 key，模型 %s）", registry.Model())
+	} else if enc, err := st.GetSetting(ctx, "deepseek_api_key"); err == nil && enc != "" {
+		if plain, err := cryptx.Decrypt(jwtSecret, enc); err == nil {
+			registry.Enable(plain, "", "")
+			log.Printf("LLM 深度分析已启用（后台配置 key，模型 %s）", registry.Model())
+		} else {
+			log.Printf("警告: 库中 DeepSeek key 解密失败（JWT_SECRET 可能已变更），深度分析不可用: %v", err)
 		}
-		llmProvider = ds
-		log.Printf("LLM 深度分析已启用（模型 %s）", ds.Model())
 	} else {
-		log.Printf("未设置 DEEPSEEK_API_KEY，LLM 深度分析接口将返回 503")
+		log.Printf("未配置 DeepSeek API Key，深度分析接口将提示未配置（可在管理后台系统设置中配置）")
 	}
 
-	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret, Rules: rs, LLM: llmProvider})
+	// ADMIN_EMAILS 自举：启动时将指定邮箱提升为管理员
+	if emails := os.Getenv("ADMIN_EMAILS"); emails != "" {
+		list := []string{}
+		for _, e := range strings.Split(emails, ",") {
+			if e = strings.TrimSpace(e); e != "" {
+				list = append(list, e)
+			}
+		}
+		if n, err := st.PromoteAdmins(ctx, list); err != nil {
+			log.Printf("警告: 管理员自举失败: %v", err)
+		} else if n > 0 {
+			log.Printf("已提升 %d 个管理员账号", n)
+		}
+	}
+
+	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret, Rules: rs, LLM: registry})
 	srv := &http.Server{Addr: ":" + port, Handler: router}
 	log.Printf("SkillGuard API 启动于 http://localhost:%s", port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

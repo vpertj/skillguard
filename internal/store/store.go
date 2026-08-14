@@ -451,3 +451,28 @@ func (s *Store) PromoteAdmins(ctx context.Context, emails []string) (int, error)
 	}
 	return int(tag.RowsAffected()), nil
 }
+
+// SetSetting 写入系统设置（value 为调用方加密后的密文）。
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO settings (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`,
+		key, value)
+	if err != nil {
+		return fmt.Errorf("写入设置失败: %w", err)
+	}
+	return nil
+}
+
+// GetSetting 读取系统设置；不存在返回 ErrNotFound。
+func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, key).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("读取设置失败: %w", err)
+	}
+	return value, nil
+}

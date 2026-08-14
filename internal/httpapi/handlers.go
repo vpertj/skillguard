@@ -21,7 +21,7 @@ type Deps struct {
 	Store     *store.Store
 	JWTSecret string
 	Rules     *rules.RuleSet
-	LLM       llm.Provider // nil 时深度分析接口返回 503
+	LLM       *llm.Registry // nil 或未启用时深度分析接口返回 503
 }
 
 const (
@@ -57,6 +57,8 @@ func NewRouter(d Deps) *gin.Engine {
 			{
 				admin.GET("/admin/users", d.handleAdminListUsers)
 				admin.PUT("/admin/users/:id", d.handleAdminUpdateUser)
+				admin.GET("/admin/settings/deepseek", d.handleGetDeepSeekSettings)
+				admin.PUT("/admin/settings/deepseek", d.handlePutDeepSeekSettings)
 			}
 		}
 	}

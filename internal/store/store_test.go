@@ -263,3 +263,26 @@ func TestPromoteAdmins(t *testing.T) {
 		t.Errorf("二次提升 = %d, want 0（已是 admin 不再更新）", n2)
 	}
 }
+
+func TestSettingsRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if _, err := s.GetSetting(ctx, "deepseek_api_key"); err != ErrNotFound {
+		t.Fatalf("初始应 ErrNotFound, got %v", err)
+	}
+	if err := s.SetSetting(ctx, "deepseek_api_key", "cipher-text-1"); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.GetSetting(ctx, "deepseek_api_key")
+	if err != nil || v != "cipher-text-1" {
+		t.Errorf("GetSetting = %q, err=%v", v, err)
+	}
+	// 覆盖更新
+	if err := s.SetSetting(ctx, "deepseek_api_key", "cipher-text-2"); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = s.GetSetting(ctx, "deepseek_api_key")
+	if v != "cipher-text-2" {
+		t.Errorf("覆盖后 = %q", v)
+	}
+}

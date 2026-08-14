@@ -132,8 +132,8 @@ func (d Deps) handleAudit(c *gin.Context) {
 // handleAuditDeep 付费档：静态审计 + LLM 语义分析（RS-018/RS-019），按 llm_review 计费。
 func (d Deps) handleAuditDeep(c *gin.Context) {
 	defer cleanupUpload(c)
-	if d.LLM == nil {
-		abort(c, http.StatusServiceUnavailable, "LLM 深度分析未配置（服务端需设置 DEEPSEEK_API_KEY）")
+	if d.LLM == nil || !d.LLM.Enabled() {
+		abort(c, http.StatusServiceUnavailable, "LLM 深度分析未配置（请联系管理员在系统设置中配置）")
 		return
 	}
 	uid := currentUser(c)

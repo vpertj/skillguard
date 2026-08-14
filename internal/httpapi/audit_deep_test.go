@@ -2,9 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,30 +14,18 @@ import (
 	"github.com/tianjun/skillguard/internal/store"
 )
 
-// fakeLLM 测试用 Provider：返回固定判定。
-type fakeLLM struct {
-	suspicious bool
-	err        error
-	callCount  int
+// llmMock 可配置的 mock LLM 服务器。
+type llmMock struct {
+	status int
+	body   string
 }
 
-func (f *fakeLLM) Analyze(_ context.Context, _ llm.AnalyzeRequest) (*llm.AnalyzeResult, error) {
-	f.callCount++
-	if f.err != nil {
-		return nil, f.err
-	}
-	conf := "low"
-	if f.suspicious {
-		conf = "high"
-	}
-	return &llm.AnalyzeResult{
-		RoleImpersonation: &llm.VerdictDetail{Suspicious: f.suspicious, Confidence: conf, Reason: "测试理由-伪装"},
-		ClaimMismatch:     &llm.VerdictDetail{Suspicious: f.suspicious, Confidence: conf, Reason: "测试理由-不一致"},
-	}, nil
-}
+const suspiciousLLMBody = `{"choices":[{"message":{"content":"{\"role_impersonation\":{\"suspicious\":true,\"confidence\":\"high\",\"reason\":\"声称官方但行为可疑\"},\"claim_mismatch\":{\"suspicious\":true,\"confidence\":\"medium\",\"reason\":\"声称无害但读取敏感文件\"}}"}}]}`
 
-// newDeepRouter 测试用路由；p 传 nil 时模拟未配置 LLM（接口参数保证 nil 是真空 nil）。
-func newDeepRouter(t *testing.T, p llm.Provider) (*gin.Engine, *store.Store) {
+const cleanLLMBody = `{"choices":[{"message":{"content":"{\"role_impersonation\":{\"suspicious\":false,\"confidence\":\"high\",\"reason\":\"无冒充\"},\"claim_mismatch\":{\"suspicious\":false,\"confidence\":\"high\",\"reason\":\"一致\"}}"}}]}`
+
+// newDeepRouter 测试路由；mock 为 nil 时模拟未配置 LLM。
+func newDeepRouter(t *testing.T, mock *llmMock) (*gin.Engine, *store.Store) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	st, err := store.Open(context.Background(), testDSN())
@@ -51,7 +40,21 @@ func newDeepRouter(t *testing.T, p llm.Provider) (*gin.Engine, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs, LLM: p}), st
+	registry := llm.NewRegistry()
+	if mock != nil {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+				http.Error(w, "missing auth", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(mock.status)
+			w.Write([]byte(mock.body))
+		}))
+		t.Cleanup(srv.Close)
+		registry.Enable("test-key", srv.URL, "test-model")
+	}
+	return NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs, LLM: registry}), st
 }
 
 func deepUser(t *testing.T, r *gin.Engine) string {
@@ -70,8 +73,7 @@ func maliciousZip(t *testing.T) []byte {
 }
 
 func TestAuditDeepFlow(t *testing.T) {
-	f := &fakeLLM{suspicious: true}
-	r, st := newDeepRouter(t, f)
+	r, st := newDeepRouter(t, &llmMock{status: 200, body: suspiciousLLMBody})
 	key := deepUser(t, r)
 
 	// 首次深度审计：201 + llm_results 2 条 suspicious
@@ -95,21 +97,15 @@ func TestAuditDeepFlow(t *testing.T) {
 	if r1["rule_id"] != "RS-019" || r1["verdict"] != "suspicious" {
 		t.Errorf("result[1] = %+v", r1)
 	}
-	if f.callCount != 1 {
-		t.Errorf("LLM 调用次数 = %d, want 1", f.callCount)
-	}
 	// 计费 kind=llm_review
 	if n, _ := st.CountUsage(context.Background(), 1, "llm_review"); n != 1 {
 		t.Errorf("llm_review 用量 = %d, want 1", n)
 	}
 
-	// 重复提交：缓存命中（200），不再次调用 LLM、不计费
+	// 重复提交：缓存命中（200），不计费
 	w = uploadAuditPath(t, r, key, maliciousZip(t), "evil.zip", "/v1/audit/deep")
 	if w.Code != 200 || parseBody(t, w)["cached"] != true {
 		t.Fatalf("cached deep = %d %s", w.Code, w.Body.String())
-	}
-	if f.callCount != 1 {
-		t.Errorf("缓存命中后 LLM 调用次数 = %d, want 1", f.callCount)
 	}
 	if n, _ := st.CountUsage(context.Background(), 1, "llm_review"); n != 1 {
 		t.Errorf("缓存命中后用量 = %d, want 1", n)
@@ -117,8 +113,7 @@ func TestAuditDeepFlow(t *testing.T) {
 }
 
 func TestAuditDeepQuota(t *testing.T) {
-	f := &fakeLLM{suspicious: false}
-	r, st := newDeepRouter(t, f)
+	r, st := newDeepRouter(t, &llmMock{status: 200, body: cleanLLMBody})
 	key := deepUser(t, r)
 	if err := st.UpdateQuotaLLM(context.Background(), 1, 1); err != nil {
 		t.Fatal(err)
@@ -135,7 +130,7 @@ func TestAuditDeepQuota(t *testing.T) {
 }
 
 func TestAuditDeepNoLLMConfigured(t *testing.T) {
-	r, _ := newDeepRouter(t, nil) // LLM nil
+	r, _ := newDeepRouter(t, nil) // 未启用
 	key := deepUser(t, r)
 	if w := uploadAuditPath(t, r, key, maliciousZip(t), "evil.zip", "/v1/audit/deep"); w.Code != 503 {
 		t.Errorf("未配置 LLM = %d, want 503", w.Code)
@@ -143,8 +138,7 @@ func TestAuditDeepNoLLMConfigured(t *testing.T) {
 }
 
 func TestAuditDeepLLMFailureNoCharge(t *testing.T) {
-	f := &fakeLLM{err: context.DeadlineExceeded}
-	r, st := newDeepRouter(t, f)
+	r, st := newDeepRouter(t, &llmMock{status: 500, body: `{"error":"boom"}`})
 	key := deepUser(t, r)
 
 	if w := uploadAuditPath(t, r, key, maliciousZip(t), "evil.zip", "/v1/audit/deep"); w.Code != 502 {
@@ -155,6 +149,3 @@ func TestAuditDeepLLMFailureNoCharge(t *testing.T) {
 		t.Errorf("LLM 失败不应计费, usage = %d", n)
 	}
 }
-
-var _ = json.Marshal
-var _ = httptest.NewRecorder

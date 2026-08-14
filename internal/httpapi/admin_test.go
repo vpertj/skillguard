@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
@@ -28,7 +30,7 @@ func newAdminRouter(t *testing.T) (*gin.Engine, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs}), st
+	return NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs, LLM: llm.NewRegistry()}), st
 }
 
 func registerAs(t *testing.T, r *gin.Engine, email string) string {
@@ -109,5 +111,61 @@ func TestAdminUsersFlow(t *testing.T) {
 	w = doJSON(t, r, "PUT", "/v1/admin/users/99999", `{"quota_audits":1}`, adminToken)
 	if w.Code != 404 {
 		t.Errorf("不存在用户 = %d, want 404", w.Code)
+	}
+}
+
+func TestAdminDeepSeekSettings(t *testing.T) {
+	r, st := newAdminRouter(t)
+
+	// 注册 + 提升 admin（重新登录）
+	registerAs(t, r, "boss@example.com")
+	if _, err := st.PromoteAdmins(context.Background(), []string{"boss@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	lw := doJSON(t, r, "POST", "/v1/auth/login", `{"email":"boss@example.com","password":"password123"}`, "")
+	adminToken := parseBody(t, lw)["token"].(string)
+
+	// 初始未配置
+	w := doJSON(t, r, "GET", "/v1/admin/settings/deepseek", "", adminToken)
+	if w.Code != 200 {
+		t.Fatalf("get settings = %d", w.Code)
+	}
+	m := parseBody(t, w)
+	if m["configured"] != false {
+		t.Errorf("初始 configured = %v, want false", m["configured"])
+	}
+
+	// 配置 key（加密存库 + 热更新）
+	w = doJSON(t, r, "PUT", "/v1/admin/settings/deepseek", `{"api_key":"sk-test-1234567890"}`, adminToken)
+	if w.Code != 200 || parseBody(t, w)["configured"] != true {
+		t.Fatalf("put settings = %d %s", w.Code, w.Body.String())
+	}
+	// 库中应为密文（非明文）
+	enc, err := st.GetSetting(context.Background(), "deepseek_api_key")
+	if err != nil || enc == "" || enc == "sk-test-1234567890" {
+		t.Errorf("库中应存密文, enc=%q err=%v", enc, err)
+	}
+	// GET 显示 configured=true 且不回传明文
+	w = doJSON(t, r, "GET", "/v1/admin/settings/deepseek", "", adminToken)
+	m = parseBody(t, w)
+	if m["configured"] != true || m["model"] == "" {
+		t.Errorf("配置后 = %+v", m)
+	}
+	if strings.Contains(w.Body.String(), "sk-test-1234567890") {
+		t.Error("响应不应包含 key 明文")
+	}
+	// 非法 key 格式 → 400
+	if w := doJSON(t, r, "PUT", "/v1/admin/settings/deepseek", `{"api_key":"not-a-key"}`, adminToken); w.Code != 400 {
+		t.Errorf("非法 key = %d, want 400", w.Code)
+	}
+	// 清空 → 停用
+	w = doJSON(t, r, "PUT", "/v1/admin/settings/deepseek", `{"api_key":""}`, adminToken)
+	if w.Code != 200 || parseBody(t, w)["configured"] != false {
+		t.Fatalf("清空 = %d %s", w.Code, w.Body.String())
+	}
+	// 普通用户访问 → 403
+	userToken := registerAs(t, r, "normal@example.com")
+	if w := doJSON(t, r, "GET", "/v1/admin/settings/deepseek", "", userToken); w.Code != 403 {
+		t.Errorf("普通用户 = %d, want 403", w.Code)
 	}
 }
