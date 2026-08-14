@@ -51,6 +51,7 @@ func NewRouter(d Deps) *gin.Engine {
 			authed.POST("/audit", d.handleAudit)
 			authed.POST("/audit/deep", d.handleAuditDeep)
 			authed.GET("/audits", d.handleListAudits)
+			authed.GET("/audits/:id", d.handleGetAudit)
 			authed.GET("/usage", d.handleUsage)
 
 			admin := authed.Group("", d.requireAdmin)

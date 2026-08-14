@@ -4,12 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +19,7 @@ import (
 	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/parser"
 	"github.com/tianjun/skillguard/internal/report"
+	"github.com/tianjun/skillguard/internal/store"
 )
 
 // parseUpload 解析上传的技能包（multipart file 字段，zip）。
@@ -265,6 +268,29 @@ func currentAPIKeyID(c *gin.Context) *int64 {
 		}
 	}
 	return nil
+}
+
+// handleGetAudit 查询单条审计的完整报告（仅本人）。
+func (d Deps) handleGetAudit(c *gin.Context) {
+	uid := currentUser(c)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		abort(c, http.StatusBadRequest, "id 非法")
+		return
+	}
+	a, err := d.Store.GetAuditByID(c.Request.Context(), uid, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			abort(c, http.StatusNotFound, "审计记录不存在")
+			return
+		}
+		abort(c, http.StatusInternalServerError, "查询审计失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"report":      json.RawMessage(a.ReportJSON),
+		"llm_results": json.RawMessage(a.LLMResults),
+	})
 }
 
 // handleListAudits 审计历史（最新在前，不含完整报告）。

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
@@ -230,5 +231,61 @@ func TestUsageEndpoint(t *testing.T) {
 	}
 	if l["used"].(float64) != 0 || l["quota"].(float64) != 10 {
 		t.Errorf("llm_review = %+v, want used=0 quota=10", l)
+	}
+}
+
+func TestGetAuditDetail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := store.Open(context.Background(), testDSN())
+	if err != nil {
+		t.Skipf("跳过：无法连接测试库: %v", err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.Reset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.LoadRules(filepath.Join("..", "..", "rules", "rules.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs, LLM: llm.NewRegistry()})
+
+	// 用户 A 注册 + Key + 审计
+	w := doJSON(t, r, "POST", "/v1/auth/register", `{"email":"auditdetail@example.com","password":"password123"}`, "")
+	tokenA := parseBody(t, w)["token"].(string)
+	w = doJSON(t, r, "POST", "/v1/keys", `{"name":"d"}`, tokenA)
+	keyA := parseBody(t, w)["key"].(string)
+	pkg := buildZip(t, map[string]string{"SKILL.md": "---\nname: x\n---\nok", "a.sh": "echo hi"})
+	w = uploadAudit(t, r, keyA, pkg, "x.zip")
+	if w.Code != 201 {
+		t.Fatalf("audit = %d", w.Code)
+	}
+	auditID := int64(1)
+
+	// 本人可查完整报告
+	w = doJSON(t, r, "GET", "/v1/audits/"+sprint64(auditID), "", keyA)
+	if w.Code != 200 {
+		t.Fatalf("get audit = %d %s", w.Code, w.Body.String())
+	}
+	m := parseBody(t, w)
+	rep := m["report"].(map[string]any)
+	if rep["tool"] != "SkillGuard" || rep["score"] == nil {
+		t.Errorf("report = %+v", rep)
+	}
+	if m["llm_results"] == nil {
+		t.Error("llm_results 字段应存在（可为空数组）")
+	}
+
+	// 用户 B 不可见 → 404
+	w = doJSON(t, r, "POST", "/v1/auth/register", `{"email":"other-detail@example.com","password":"password123"}`, "")
+	tokenB := parseBody(t, w)["token"].(string)
+	w = doJSON(t, r, "GET", "/v1/audits/"+sprint64(auditID), "", tokenB)
+	if w.Code != 404 {
+		t.Errorf("他人查看 = %d, want 404", w.Code)
+	}
+	// 不存在 → 404
+	w = doJSON(t, r, "GET", "/v1/audits/99999", "", tokenA)
+	if w.Code != 404 {
+		t.Errorf("不存在 = %d, want 404", w.Code)
 	}
 }

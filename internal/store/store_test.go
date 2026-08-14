@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -284,5 +285,36 @@ func TestSettingsRoundTrip(t *testing.T) {
 	v, _ = s.GetSetting(ctx, "deepseek_api_key")
 	if v != "cipher-text-2" {
 		t.Errorf("覆盖后 = %q", v)
+	}
+}
+
+func TestGetAuditByID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u1, _ := s.CreateUser(ctx, "owner@example.com", "h", "user")
+	u2, _ := s.CreateUser(ctx, "other@example.com", "h", "user")
+
+	score := 88.8
+	a, err := s.CreateAudit(ctx, u1.ID, nil, "h1", &score, "malicious", []byte(`[{"rule_id":"RS-001"}]`), []byte(`{"tool":"SkillGuard"}`), []byte(`[{"rule_id":"RS-018"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetAuditByID(ctx, u1.ID, a.ID)
+	if err != nil || got.ID != a.ID || got.LevelKey != "malicious" {
+		t.Errorf("GetAuditByID = %+v, err=%v", got, err)
+	}
+	// JSONB 列会被 PG 规范化（空格），解析后比较
+	var gotLLM []map[string]any
+	if err := json.Unmarshal(got.LLMResults, &gotLLM); err != nil || len(gotLLM) != 1 || gotLLM[0]["rule_id"] != "RS-018" {
+		t.Errorf("LLMResults = %s, err=%v", got.LLMResults, err)
+	}
+	// 他人不可见
+	if _, err := s.GetAuditByID(ctx, u2.ID, a.ID); err != ErrNotFound {
+		t.Errorf("他人查询应 ErrNotFound, got %v", err)
+	}
+	// 不存在
+	if _, err := s.GetAuditByID(ctx, u1.ID, 99999); err != ErrNotFound {
+		t.Errorf("不存在应 ErrNotFound, got %v", err)
 	}
 }

@@ -476,3 +476,20 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 	}
 	return value, nil
 }
+
+// GetAuditByID 按 ID 查审计记录（仅限本人）。
+func (s *Store) GetAuditByID(ctx context.Context, userID, auditID int64) (*Audit, error) {
+	var a Audit
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, llm_results, created_at
+		 FROM audits WHERE id = $1 AND user_id = $2`,
+		auditID, userID,
+	).Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.LLMResults, &a.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询审计失败: %w", err)
+	}
+	return &a, nil
+}
