@@ -18,10 +18,16 @@
 
 ## 快速开始
 
-> 当前为引擎内核阶段：CLI / Web 尚未实现，内核以单元测试验证。
-
 ```bash
-# 运行全部测试
+# CLI：本地审计技能包（目录 / 单文件 / zip），默认 Markdown 报告
+go build -o skillguard ./cmd/audit
+./skillguard audit ./path/to/skill
+./skillguard audit ./path/to/skill --json -o report.json
+
+# Web API：注册用户 → 生成 API Key → 上传技能包审计（按次计费）
+JWT_SECRET=<随机密钥> DATABASE_URL=postgres://tianjun@localhost:5432/skillguard_dev go run ./cmd/server
+
+# 运行全部测试（内核 38 项 + 数据层/API 测试，需本地 PostgreSQL）
 go test ./...
 ```
 

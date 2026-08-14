@@ -84,18 +84,22 @@ skillguard/
 
 ## 当前阶段状态
 
-**阶段一（进行中）：静态审计 MVP**
+**阶段一（进行中）：静态审计 MVP + SaaS 骨架**
 
-> 当前里程碑（2026-08-13 起）：**引擎内核四件套**——`rules/rules.yaml`(V1 24 条) + `internal/rules` + `internal/parser` + `internal/analyzer` + `internal/report` + 单测/正反样本。CLI/LLM/Web 为下一里程碑。设计文档：`docs/superpowers/specs/2026-08-13-skillguard-engine-core-design.md`
+> 引擎内核四件套已完成（M0-M6）；SaaS 骨架已完成（M7-M13，2026-08-14）：
+> 用户系统（注册/登录 JWT）+ API Key 管理 + Web API（上传 zip → 报告 + 去重缓存 + 用量计费 + 免费配额）+ CLI。
+> 设计文档：`docs/superpowers/specs/2026-08-13-skillguard-engine-core-design.md`、`docs/superpowers/plans/2026-08-14-skillguard-saas-core.md`
 
-- [ ] 规则库 V1（24 条规则，7 类攻击面）—— 本次里程碑 M1 起草 `rules/rules.yaml` + `docs/规则库V1.md`
-- [ ] SKILL.md 解析器（`internal/parser`）
-- [ ] 规则引擎（`internal/rules`，加载 rules.yaml）
-- [ ] 静态分析器（`internal/analyzer`）
-- [ ] 报告生成（`internal/report`）
-- [ ] LLM 语义分析接入（`internal/llm`）—— 下一里程碑（引擎预留 detection: llm 队列）
-- [ ] Web 页面（上传 → 报告）+ 基础风险评分（`cmd/server`）—— 阶段二（ARCHITECTURE.md P1-2）
-- [ ] CLI 工具（`cmd/audit`）—— 下一里程碑
+- [x] 规则库 V1（24 条规则，7 类攻击面）—— `rules/rules.yaml` + `docs/规则库V1.md`
+- [x] SKILL.md 解析器（`internal/parser`）
+- [x] 规则引擎（`internal/rules`，加载 rules.yaml + regexp2）
+- [x] 静态分析器（`internal/analyzer`，ScanContent + Score/Grade + Analyze）
+- [x] 报告生成（`internal/report`，Markdown/JSON）
+- [x] CLI 工具（`cmd/audit`，Cobra）
+- [x] Web API（`cmd/server`，Gin）：注册/登录 JWT + API Key 管理 + POST /v1/audit + 用量配额
+- [x] 数据层（`internal/store`，PG 迁移 + 用户/Key/审计/用量）
+- [ ] LLM 语义分析接入（`internal/llm`）—— 下一里程碑（引擎预留 detection: llm 队列，RS-018/RS-019 已入 llm_review_rules）
+- [ ] asynq 异步化（需 Redis）+ 账单出账（Stripe 类）—— 并发量/商业化后置
 
 **阶段二（未开始）**：沙箱动态执行（gVisor）+ Pro/Team 订阅 + 安全认证徽章
 **阶段三（未开始）**：企业版（私有化部署）+ 威胁情报月报
