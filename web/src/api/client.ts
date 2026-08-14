@@ -1,5 +1,5 @@
 // fetch 封装：自动带 Bearer token、JSON 解析、统一错误
-import type { AuthResp, AuditListResp, AuditResp, CreateKeyResp, KeyListResp, UsageResp } from './types'
+import type { AdminUserListResp, AuthResp, AuditListResp, AuditResp, CreateKeyResp, DeepSeekSettings, KeyListResp, UsageResp } from './types'
 
 const TOKEN_KEY = 'sg_token'
 
@@ -88,4 +88,13 @@ export const auditApi = {
 
 export const usageApi = {
   get: () => api<UsageResp>('/usage'),
+}
+
+// —— 管理员接口 ——
+export const adminApi = {
+  listUsers: () => api<AdminUserListResp>('/admin/users?limit=200'),
+  updateUser: (id: number, body: { quota_audits?: number; quota_llm_reviews?: number; role?: string }) =>
+    api<{ ok: boolean }>(`/admin/users/${id}`, { method: 'PUT', body }),
+  getDeepSeek: () => api<DeepSeekSettings>('/admin/settings/deepseek'),
+  putDeepSeek: (api_key: string) => api<{ ok: boolean; configured: boolean }>('/admin/settings/deepseek', { method: 'PUT', body: { api_key } }),
 }

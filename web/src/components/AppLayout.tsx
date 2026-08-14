@@ -8,6 +8,8 @@ import {
   HistoryOutlined,
   LogoutOutlined,
   UserOutlined,
+  TeamOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import { useAuth } from '../stores/auth'
 
@@ -23,6 +25,8 @@ export default function AppLayout() {
     if (p.startsWith('/audit')) return '/audit'
     if (p.startsWith('/keys')) return '/keys'
     if (p.startsWith('/history')) return '/history'
+    if (p.startsWith('/admin/users')) return '/admin/users'
+    if (p.startsWith('/admin/settings')) return '/admin/settings'
     return '/'
   }, [location.pathname])
 
@@ -31,6 +35,13 @@ export default function AppLayout() {
     { key: '/audit', icon: <SafetyCertificateOutlined />, label: '技能审计' },
     { key: '/keys', icon: <KeyOutlined />, label: 'API Keys' },
     { key: '/history', icon: <HistoryOutlined />, label: '审计历史' },
+    ...(user?.role === 'admin'
+      ? [
+          { type: 'divider' as const },
+          { key: '/admin/users', icon: <TeamOutlined />, label: '用户管理' },
+          { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
+        ]
+      : []),
   ]
 
   return (

@@ -5,6 +5,7 @@ export interface User {
   email: string
   role: string
   quota_audits: number
+  quota_llm_reviews: number
   created_at: string
 }
 
@@ -127,4 +128,17 @@ export interface UsageResp {
 
 export interface KeyListResp {
   keys: APIKey[]
+}
+
+// —— admin ——
+export interface AdminUser extends User {}
+
+export interface AdminUserListResp {
+  users: AdminUser[]
+}
+
+export interface DeepSeekSettings {
+  configured: boolean
+  model: string
+  base_url: string
 }
