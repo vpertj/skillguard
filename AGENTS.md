@@ -98,7 +98,7 @@ skillguard/
 - [x] CLI 工具（`cmd/audit`，Cobra）
 - [x] Web API（`cmd/server`，Gin）：注册/登录 JWT + API Key 管理 + POST /v1/audit + 用量配额
 - [x] 数据层（`internal/store`，PG 迁移 + 用户/Key/审计/用量）
-- [ ] LLM 语义分析接入（`internal/llm`）—— 下一里程碑（引擎预留 detection: llm 队列，RS-018/RS-019 已入 llm_review_rules）
+- [x] LLM 语义分析（`internal/llm`，DeepSeek Provider）：`POST /v1/audit/deep` 付费档，llm_review 独立配额计费
 - [ ] asynq 异步化（需 Redis）+ 账单出账（Stripe 类）—— 并发量/商业化后置
 
 **阶段二（未开始）**：沙箱动态执行（gVisor）+ Pro/Team 订阅 + 安全认证徽章
