@@ -8,8 +8,10 @@ require (
 )
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.10.0
+	golang.org/x/crypto v0.45.0
 )
 
 require (
