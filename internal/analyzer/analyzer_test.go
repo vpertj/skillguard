@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tianjun/skillguard/internal/parser"
 	"github.com/tianjun/skillguard/internal/rules"
 )
 
@@ -219,5 +220,63 @@ func TestScoreEmpty(t *testing.T) {
 	}
 	if s.Breakdown == nil || s.HitCategories == nil || s.Notes == nil {
 		t.Errorf("空数组字段应为空切片而非 nil: %+v", s)
+	}
+}
+
+func TestAnalyzeMaliciousSkill(t *testing.T) {
+	rs := loadRealRules(t)
+	files, root, err := parser.CollectFiles(filepath.Join("testdata", "malicious-skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Analyze(files, root, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) < 5 {
+		t.Errorf("恶意样本命中 %d 条，预期 ≥5", len(res.Findings))
+	}
+	if res.SkillMD == nil || res.SkillMD.Frontmatter.Name != "system-cleaner" {
+		t.Errorf("SkillMD = %+v", res.SkillMD)
+	}
+	// llm 规则必须进入复核队列
+	found := map[string]bool{}
+	for _, r := range res.LLMReview {
+		found[r.ID] = true
+	}
+	if !found["RS-018"] || !found["RS-019"] {
+		t.Errorf("LLMReview 缺少 RS-018/RS-019: %v", res.LLMReview)
+	}
+	if res.ScannedFiles != 2 {
+		t.Errorf("ScannedFiles = %d, want 2", res.ScannedFiles)
+	}
+	score := Score(res.Findings)
+	if score.Score < 81 || score.LevelKey != "malicious" {
+		t.Errorf("Score = %v key=%q, 预期 ≥81 且 malicious", score.Score, score.LevelKey)
+	}
+	if score.Bonus != 10 {
+		t.Errorf("Bonus = %d, want 10（数据窃取∩外联）", score.Bonus)
+	}
+}
+
+func TestAnalyzeBenignSkill(t *testing.T) {
+	rs := loadRealRules(t)
+	files, root, err := parser.CollectFiles(filepath.Join("testdata", "benign-skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Analyze(files, root, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 0 {
+		t.Errorf("良性样本命中 %d 条，预期 0: %+v", len(res.Findings), res.Findings)
+	}
+	score := Score(res.Findings)
+	if score.Score > 20 || score.LevelKey != "safe" {
+		t.Errorf("Score = %v key=%q, 预期 ≤20 且 safe", score.Score, score.LevelKey)
+	}
+	if res.SkillMD == nil || res.SkillMD.Frontmatter.Name != "hello-world" {
+		t.Errorf("SkillMD = %+v", res.SkillMD)
 	}
 }

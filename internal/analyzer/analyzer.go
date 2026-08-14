@@ -4,8 +4,12 @@ package analyzer
 import (
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
+	"github.com/tianjun/skillguard/internal/parser"
 	"github.com/tianjun/skillguard/internal/rules"
 )
 
@@ -196,4 +200,81 @@ func Grade(score float64) (level, key, icon string) {
 	default:
 		return "恶意", "malicious", "☠️"
 	}
+}
+
+// SkillMDInfo SKILL.md 解析信息（报告 skill_md 字段）。
+type SkillMDInfo struct {
+	File        string             `json:"file"`
+	Frontmatter parser.Frontmatter `json:"frontmatter"`
+	BodyPreview string             `json:"body_preview"`
+}
+
+// Result 一次全包扫描的结果。
+type Result struct {
+	Findings     []Finding
+	LLMReview    []*rules.Rule
+	SkillMD      *SkillMDInfo
+	ScannedFiles int
+	SkippedFiles int
+}
+
+// Analyze 对技能包文件集做全量静态扫描（ARCHITECTURE §4.1 阶段 1-3）。
+// files 为相对 root 的路径列表（parser.CollectFiles 的产物）。
+func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
+	res := &Result{LLMReview: rs.LLMOnly()}
+	for _, f := range files {
+		path := filepath.Join(root, filepath.FromSlash(f))
+		info, err := os.Stat(path)
+		if err != nil {
+			res.SkippedFiles++
+			continue
+		}
+		if !parser.IsScannable(path, info.Size()) {
+			res.SkippedFiles++
+			continue
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			res.SkippedFiles++
+			continue
+		}
+		res.ScannedFiles++
+		if len(parser.FindSkillMD([]string{f})) > 0 {
+			fm, body, err := parser.ParseSkillMD(string(content))
+			if err != nil {
+				log.Printf("[skillguard/analyzer] SKILL.md 解析失败: %v", err)
+			}
+			res.SkillMD = &SkillMDInfo{File: f, Frontmatter: fm, BodyPreview: preview(body)}
+		}
+		for _, r := range rs.AutoDetectable() {
+			line, snippet, ok := rs.MatchRule(r.ID, string(content))
+			if !ok {
+				continue
+			}
+			res.Findings = append(res.Findings, Finding{
+				RuleID: r.ID, RuleName: r.Name, Category: r.Category,
+				Severity: r.Severity, Weight: r.Weight, Detection: r.Detection,
+				File: f, Line: line, Snippet: snippet,
+			})
+		}
+	}
+	sort.Slice(res.Findings, func(i, j int) bool {
+		if res.Findings[i].File != res.Findings[j].File {
+			return res.Findings[i].File < res.Findings[j].File
+		}
+		if res.Findings[i].Line != res.Findings[j].Line {
+			return res.Findings[i].Line < res.Findings[j].Line
+		}
+		return res.Findings[i].RuleID < res.Findings[j].RuleID
+	})
+	return res, nil
+}
+
+// preview 截取正文前 500 字符作为报告预览。
+func preview(body string) string {
+	r := []rune(strings.TrimSpace(body))
+	if len(r) > 500 {
+		return string(r[:500]) + "…"
+	}
+	return string(r)
 }
