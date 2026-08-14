@@ -1,54 +1,52 @@
-# SkillGuard — 技能安全审计服务
+# SkillGuard — Skill Security Audit Service
 
-> AI Agent 技能（SKILL.md）生态的安全质检 + 可信分发中间层。
-> 给每一个技能做"安全体检"，输出风险评分报告。
+> A security inspection and trusted distribution middle layer for the AI Agent skill (SKILL.md) ecosystem.
+> Every skill gets a "security checkup": upload a skill package and receive a 0-100 risk score report.
 
-## 定位
+## Why
 
-技能生态正在爆发（SkillsMP 70万+ 技能、ClawHub 1万+ 技能），但安全事件频发
-（ClawHub 被查出 820 个恶意技能）。SkillGuard 作为**中立第三方审计层**，
-帮助平台方、企业和个人用户识别恶意技能，建立信任。
+The skill ecosystem is booming (700K+ skills on SkillsMP, 10K+ on ClawHub), but security incidents are frequent (820 malicious skills were found on ClawHub). SkillGuard acts as a **neutral third-party audit layer** that helps platforms, enterprises, and individual users identify malicious skills and build trust.
 
-## 功能
+## Features
 
-- **静态分析**：24 条规则覆盖 7 类攻击面（代码执行 / 持久化 / 数据窃取 / 网络外联 / 提示注入 / 供应链 / 混淆）
-- **LLM 语义分析**：识别"文档无害但行为可疑"的软性风险（提示注入、误导性声明）
-- **风险评分**：0-100 分四级（安全 / 低风险 / 高风险 / 恶意）
-- **沙箱动态执行**（阶段二）：隔离环境运行脚本，监控真实行为
+- **Static analysis**: 24 rules covering 7 attack surfaces (code execution / persistence / data theft / network exfiltration / prompt injection / supply chain / obfuscation)
+- **LLM semantic analysis**: detects soft risks where "the docs look harmless but the behavior is suspicious" (prompt injection, misleading claims)
+- **Risk scoring**: 0-100 in four levels (safe / low risk / high risk / malicious)
+- **Sandbox dynamic execution** (Phase 2): run scripts in an isolated environment and monitor real behavior
 
-## 快速开始
+## Quick Start
 
 ```bash
-# CLI：本地审计技能包（目录 / 单文件 / zip），默认 Markdown 报告
+# CLI: audit a skill package locally (directory / single file / zip), Markdown report by default
 go build -o skillguard ./cmd/audit
 ./skillguard audit ./path/to/skill
 ./skillguard audit ./path/to/skill --json -o report.json
 
-# Web API：注册用户 → 生成 API Key → 上传技能包审计（按次计费）
-# ADMIN_EMAILS=admin@example.com 启动时将该邮箱提升为管理员（可在后台管理用户配额与 DeepSeek Key）
-JWT_SECRET=<随机密钥> DATABASE_URL=postgres://tianjun@localhost:5432/skillguard_dev go run ./cmd/server
+# Web API: register a user → create an API Key → upload a skill package for audit (pay-per-use)
+# ADMIN_EMAILS=admin@example.com promotes that email to admin on startup (manage user quotas & DeepSeek Key in the admin console)
+JWT_SECRET=<random-secret> DATABASE_URL=postgres://tianjun@localhost:5432/skillguard_dev go run ./cmd/server
 
-# Web 管理控制台（React19 + AntD6 SPA，浏览器访问 http://localhost:5173）
+# Web console (React 19 + AntD 6 SPA, open http://localhost:5173 in a browser)
 cd web && pnpm install && pnpm dev
 
-# 运行全部测试（内核 57 项 + 数据层/API 测试，需本地 PostgreSQL）
+# Run all tests (engine core + data layer / API tests, requires local PostgreSQL)
 go test ./...
 ```
 
-## 文档
+## Docs
 
-- [AI 协作指南](AGENTS.md) — AI 编码助手必读
-- [产品方案](docs/产品方案.md) — 背景 / 客户 / 定价 / 路线图（待写）
-- [检测规则库 V1](docs/规则库V1.md) — 24 条规则详细说明
-- [机器可读规则](rules/rules.yaml) — Go 引擎加载的规则定义
-- [架构规格](docs/ARCHITECTURE.md) — 分层架构、接口签名、评分算法
+- [AI Collaboration Guide](AGENTS.md) — must-read for AI coding assistants
+- [Product Plan](docs/产品方案.md) — background / customers / pricing / roadmap (draft)
+- [Detection Rules V1](docs/规则库V1.md) — detailed docs for all 24 rules
+- [Machine-readable rules](rules/rules.yaml) — rule definitions loaded by the Go engine
+- [Architecture Spec](docs/ARCHITECTURE.md) — layered architecture, interface signatures, scoring algorithm
 
-## 路线图
+## Roadmap
 
-- **阶段一**（进行中）：静态审计 MVP（解析器 → 规则引擎 → 分析器 → 报告）
-- **阶段二**：沙箱动态执行 + 订阅商业化 + 安全认证徽章
-- **阶段三**：企业版私有化 + 威胁情报月报
+- **Phase 1** (in progress): static audit MVP (parser → rule engine → analyzer → report)
+- **Phase 2**: sandbox dynamic execution + subscription monetization + security certification badge
+- **Phase 3**: enterprise private deployment + threat intelligence monthly report
 
 ## License
 
-Private / 未定
+Private / TBD
