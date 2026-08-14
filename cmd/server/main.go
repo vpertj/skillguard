@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/tianjun/skillguard/internal/httpapi"
+	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
@@ -51,7 +52,20 @@ func main() {
 	}
 	log.Printf("规则库加载完成: %s", rs.Summary())
 
-	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret, Rules: rs})
+	// LLM 深度分析（付费档）：配置了 DEEPSEEK_API_KEY 才启用，未配置时深度接口返回 503
+	var llmProvider llm.Provider
+	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
+		ds, err := llm.NewDeepSeek(apiKey)
+		if err != nil {
+			log.Fatalf("初始化 DeepSeek 失败: %v", err)
+		}
+		llmProvider = ds
+		log.Printf("LLM 深度分析已启用（模型 %s）", ds.Model())
+	} else {
+		log.Printf("未设置 DEEPSEEK_API_KEY，LLM 深度分析接口将返回 503")
+	}
+
+	router := httpapi.NewRouter(httpapi.Deps{Store: st, JWTSecret: jwtSecret, Rules: rs, LLM: llmProvider})
 	srv := &http.Server{Addr: ":" + port, Handler: router}
 	log.Printf("SkillGuard API 启动于 http://localhost:%s", port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -34,6 +34,12 @@ func buildZip(t *testing.T, entries map[string]string) []byte {
 // uploadAudit 模拟 multipart 上传审计。
 func uploadAudit(t *testing.T, r *gin.Engine, token string, zipData []byte, filename string) *httptest.ResponseRecorder {
 	t.Helper()
+	return uploadAuditPath(t, r, token, zipData, filename, "/v1/audit")
+}
+
+// uploadAuditPath 上传审计到指定路径（如 /v1/audit/deep）。
+func uploadAuditPath(t *testing.T, r *gin.Engine, token string, zipData []byte, filename, path string) *httptest.ResponseRecorder {
+	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	fw, err := mw.CreateFormFile("file", filename)
@@ -43,7 +49,7 @@ func uploadAudit(t *testing.T, r *gin.Engine, token string, zipData []byte, file
 	fw.Write(zipData)
 	mw.Close()
 
-	req := httptest.NewRequest("POST", "/v1/audit", &buf)
+	req := httptest.NewRequest("POST", path, &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -217,7 +223,12 @@ func TestUsageEndpoint(t *testing.T) {
 		t.Fatalf("usage = %d %s", w.Code, w.Body.String())
 	}
 	m := parseBody(t, w)
-	if m["used"].(float64) != 0 || m["quota"].(float64) != 100 || m["kind"] != "static_audit" {
-		t.Errorf("usage = %+v, want used=0 quota=100 kind=static_audit", m)
+	s := m["static_audit"].(map[string]any)
+	l := m["llm_review"].(map[string]any)
+	if s["used"].(float64) != 0 || s["quota"].(float64) != 100 {
+		t.Errorf("static_audit = %+v, want used=0 quota=100", s)
+	}
+	if l["used"].(float64) != 0 || l["quota"].(float64) != 10 {
+		t.Errorf("llm_review = %+v, want used=0 quota=10", l)
 	}
 }

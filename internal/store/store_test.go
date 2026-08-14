@@ -108,7 +108,7 @@ func TestAuditCacheDedup(t *testing.T) {
 	k, _ := s.CreateAPIKey(ctx, u.ID, "sk_live_cd34", "cafe01", "")
 
 	score := 91.8
-	a1, err := s.CreateAudit(ctx, u.ID, &k.ID, "abc123", &score, "malicious", []byte(`[{"rule_id":"RS-001"}]`), []byte(`{"tool":"SkillGuard"}`))
+	a1, err := s.CreateAudit(ctx, u.ID, &k.ID, "abc123", &score, "malicious", []byte(`[{"rule_id":"RS-001"}]`), []byte(`{"tool":"SkillGuard"}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestUsageQuota(t *testing.T) {
 	}
 	// 带审计关联
 	score := 10.0
-	a, _ := s.CreateAudit(ctx, u.ID, nil, "h1", &score, "safe", []byte("[]"), []byte("{}"))
+	a, _ := s.CreateAudit(ctx, u.ID, nil, "h1", &score, "safe", []byte("[]"), []byte("{}"), nil)
 	if err := s.CreateUsage(ctx, u.ID, &a.ID, "static_audit", 1); err != nil {
 		t.Fatal(err)
 	}

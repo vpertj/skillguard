@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tianjun/skillguard/internal/auth"
+	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/rules"
 	"github.com/tianjun/skillguard/internal/store"
 )
@@ -20,6 +21,7 @@ type Deps struct {
 	Store     *store.Store
 	JWTSecret string
 	Rules     *rules.RuleSet
+	LLM       llm.Provider // nil 时深度分析接口返回 503
 }
 
 const (
@@ -47,6 +49,7 @@ func NewRouter(d Deps) *gin.Engine {
 			authed.GET("/keys", d.handleListKeys)
 			authed.DELETE("/keys/:id", d.handleRevokeKey)
 			authed.POST("/audit", d.handleAudit)
+			authed.POST("/audit/deep", d.handleAuditDeep)
 			authed.GET("/audits", d.handleListAudits)
 			authed.GET("/usage", d.handleUsage)
 		}

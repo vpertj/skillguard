@@ -27,12 +27,13 @@ type Store struct {
 
 // User 用户记录。
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"`
-	QuotaAudits  int       `json:"quota_audits"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID              int64     `json:"id"`
+	Email           string    `json:"email"`
+	PasswordHash    string    `json:"-"`
+	Role            string    `json:"role"`
+	QuotaAudits     int       `json:"quota_audits"`
+	QuotaLLMReviews int       `json:"quota_llm_reviews"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // APIKey API Key 记录（key_hash 为 sha256 摘要，不回传明文）。
@@ -56,6 +57,7 @@ type Audit struct {
 	LevelKey   string    `json:"level_key"`
 	Findings   []byte    `json:"findings"`
 	ReportJSON []byte    `json:"report_json"`
+	LLMResults []byte    `json:"llm_results"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -144,9 +146,9 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, role string
 	var u User
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)
-		 RETURNING id, email, password_hash, role, quota_audits, created_at`,
+		 RETURNING id, email, password_hash, role, quota_audits, quota_llm_reviews, created_at`,
 		email, passwordHash, role,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.QuotaLLMReviews, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("创建用户失败: %w", err)
 	}
@@ -157,9 +159,9 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, role string
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, role, quota_audits, created_at FROM users WHERE email = $1`,
+		`SELECT id, email, password_hash, role, quota_audits, quota_llm_reviews, created_at FROM users WHERE email = $1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.QuotaLLMReviews, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -173,9 +175,9 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, role, quota_audits, created_at FROM users WHERE id = $1`,
+		`SELECT id, email, password_hash, role, quota_audits, quota_llm_reviews, created_at FROM users WHERE id = $1`,
 		id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.QuotaAudits, &u.QuotaLLMReviews, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -185,11 +187,20 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	return &u, nil
 }
 
-// UpdateQuota 调整用户配额（admin/测试用）。
+// UpdateQuota 调整用户静态审计配额（admin/测试用）。
 func (s *Store) UpdateQuota(ctx context.Context, userID int64, quota int) error {
 	_, err := s.pool.Exec(ctx, `UPDATE users SET quota_audits = $1 WHERE id = $2`, quota, userID)
 	if err != nil {
 		return fmt.Errorf("更新配额失败: %w", err)
+	}
+	return nil
+}
+
+// UpdateQuotaLLM 调整用户 LLM 深度分析配额（admin/测试用）。
+func (s *Store) UpdateQuotaLLM(ctx context.Context, userID int64, quota int) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET quota_llm_reviews = $1 WHERE id = $2`, quota, userID)
+	if err != nil {
+		return fmt.Errorf("更新 LLM 配额失败: %w", err)
 	}
 	return nil
 }
@@ -265,14 +276,17 @@ func (s *Store) RevokeAPIKey(ctx context.Context, userID, keyID int64) error {
 // --- audits ---
 
 // CreateAudit 写入审计记录。
-func (s *Store) CreateAudit(ctx context.Context, userID int64, apiKeyID *int64, skillHash string, score *float64, levelKey string, findings, reportJSON []byte) (*Audit, error) {
+func (s *Store) CreateAudit(ctx context.Context, userID int64, apiKeyID *int64, skillHash string, score *float64, levelKey string, findings, reportJSON, llmResults []byte) (*Audit, error) {
+	if llmResults == nil {
+		llmResults = []byte("[]")
+	}
 	var a Audit
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO audits (user_id, api_key_id, skill_hash, score, level_key, findings, report_json)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, created_at`,
-		userID, apiKeyID, skillHash, score, levelKey, findings, reportJSON,
-	).Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.CreatedAt)
+		`INSERT INTO audits (user_id, api_key_id, skill_hash, score, level_key, findings, report_json, llm_results)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, llm_results, created_at`,
+		userID, apiKeyID, skillHash, score, levelKey, findings, reportJSON, llmResults,
+	).Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.LLMResults, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("写入审计记录失败: %w", err)
 	}
@@ -283,13 +297,13 @@ func (s *Store) CreateAudit(ctx context.Context, userID int64, apiKeyID *int64, 
 func (s *Store) FindCachedAudit(ctx context.Context, userID int64, skillHash string) (*Audit, error) {
 	var a Audit
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, created_at
+		`SELECT id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, llm_results, created_at
 		 FROM audits
 		 WHERE user_id = $1 AND skill_hash = $2
 		   AND created_at >= date_trunc('day', now())
 		 ORDER BY id DESC LIMIT 1`,
 		userID, skillHash,
-	).Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.CreatedAt)
+	).Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.LLMResults, &a.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // 无缓存，非错误
 	}
@@ -302,7 +316,7 @@ func (s *Store) FindCachedAudit(ctx context.Context, userID int64, skillHash str
 // ListAudits 列出用户审计历史（最新在前）。
 func (s *Store) ListAudits(ctx context.Context, userID int64, limit int) ([]Audit, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, created_at
+		`SELECT id, user_id, api_key_id, skill_hash, score, level_key, findings, report_json, llm_results, created_at
 		 FROM audits WHERE user_id = $1 ORDER BY id DESC LIMIT $2`,
 		userID, limit,
 	)
@@ -313,7 +327,7 @@ func (s *Store) ListAudits(ctx context.Context, userID int64, limit int) ([]Audi
 	var out []Audit
 	for rows.Next() {
 		var a Audit
-		if err := rows.Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UserID, &a.APIKeyID, &a.SkillHash, &a.Score, &a.LevelKey, &a.Findings, &a.ReportJSON, &a.LLMResults, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -351,15 +365,19 @@ func (s *Store) CountUsage(ctx context.Context, userID int64, kind string) (int,
 	return n, nil
 }
 
-// QuotaExceeded 判定用户某类用量是否已达配额。
+// QuotaExceeded 判定用户某类用量是否已达配额（kind 决定对应配额列）。
 func (s *Store) QuotaExceeded(ctx context.Context, userID int64, kind string) (bool, error) {
-	var quota, used int
-	err := s.pool.QueryRow(ctx,
-		`SELECT u.quota_audits,
+	quotaCol := "quota_audits"
+	if kind == "llm_review" {
+		quotaCol = "quota_llm_reviews"
+	}
+	// 列名来自白名单（上面已限定），可安全拼接
+	query := fmt.Sprintf(
+		`SELECT u.%s,
 		        (SELECT COALESCE(SUM(units), 0) FROM usage_logs WHERE user_id = u.id AND kind = $2)
-		 FROM users u WHERE u.id = $1`,
-		userID, kind,
-	).Scan(&quota, &used)
+		 FROM users u WHERE u.id = $1`, quotaCol)
+	var quota, used int
+	err := s.pool.QueryRow(ctx, query, userID, kind).Scan(&quota, &used)
 	if err != nil {
 		return false, fmt.Errorf("查询配额失败: %w", err)
 	}

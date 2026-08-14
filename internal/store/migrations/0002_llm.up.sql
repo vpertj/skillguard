@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN quota_llm_reviews INT NOT NULL DEFAULT 10;
+ALTER TABLE audits ADD COLUMN llm_results JSONB NOT NULL DEFAULT '[]';

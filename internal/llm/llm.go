@@ -106,6 +106,9 @@ func NewDeepSeekWithBase(apiKey, baseURL, model string) *DeepSeek {
 	}
 }
 
+// Model 返回当前使用的模型名（供启动日志/展示）。
+func (d *DeepSeek) Model() string { return d.model }
+
 // Analyze 调用模型判定 RS-018/RS-019，返回结构化结果。
 // 模型返回非 JSON / 字段缺失时降级为 unknown，不返回错误（审计主流程不受影响）。
 func (d *DeepSeek) Analyze(ctx context.Context, req AnalyzeRequest) (*AnalyzeResult, error) {
