@@ -1,0 +1,198 @@
+package store
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+)
+
+// testDSN 默认连本地 skillguard_test 库；无 DB 时测试跳过（CI 友好）。
+func testDSN() string {
+	if dsn := os.Getenv("SKILLGUARD_TEST_DSN"); dsn != "" {
+		return dsn
+	}
+	return "postgres://tianjun@localhost:5432/skillguard_test?sslmode=disable"
+}
+
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(context.Background(), testDSN())
+	if err != nil {
+		t.Skipf("跳过：无法连接测试库 %s: %v", testDSN(), err)
+	}
+	t.Cleanup(s.Close)
+	// 每次测试重建 schema，保证隔离
+	if err := s.Reset(context.Background()); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	return s
+}
+
+func TestOpenAndMigrate(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+}
+
+func TestUserLifecycle(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	u, err := s.CreateUser(ctx, "alice@example.com", "hash-1", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.ID == 0 || u.Email != "alice@example.com" || u.QuotaAudits != 100 || u.Role != "user" {
+		t.Errorf("User = %+v", u)
+	}
+
+	got, err := s.GetUserByEmail(ctx, "alice@example.com")
+	if err != nil || got.ID != u.ID {
+		t.Errorf("GetUserByEmail = %+v, err=%v", got, err)
+	}
+	got, err = s.GetUserByID(ctx, u.ID)
+	if err != nil || got.Email != "alice@example.com" {
+		t.Errorf("GetUserByID = %+v, err=%v", got, err)
+	}
+
+	// 重复邮箱必须报错
+	if _, err := s.CreateUser(ctx, "alice@example.com", "hash-2", "user"); err == nil {
+		t.Fatal("重复邮箱应报错")
+	}
+	if _, err := s.GetUserByEmail(ctx, "nobody@example.com"); err == nil {
+		t.Error("不存在用户应报错")
+	}
+}
+
+func TestAPIKeyLifecycle(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "bob@example.com", "hash", "user")
+
+	k, err := s.CreateAPIKey(ctx, u.ID, "sk_live_ab12", "deadbeef", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.ID == 0 || k.UserID != u.ID || k.KeyPrefix != "sk_live_ab12" {
+		t.Errorf("APIKey = %+v", k)
+	}
+
+	got, err := s.GetAPIKeyByHash(ctx, "deadbeef")
+	if err != nil || got.ID != k.ID || got.Revoked {
+		t.Errorf("GetAPIKeyByHash = %+v, err=%v", got, err)
+	}
+	if _, err := s.GetAPIKeyByHash(ctx, "nope"); err == nil {
+		t.Error("未知 key hash 应报错")
+	}
+
+	keys, err := s.ListAPIKeys(ctx, u.ID)
+	if err != nil || len(keys) != 1 {
+		t.Errorf("ListAPIKeys = %v, err=%v", keys, err)
+	}
+
+	if err := s.RevokeAPIKey(ctx, u.ID, k.ID); err != nil {
+		t.Fatal(err)
+	}
+	// 吊销后不可再用
+	if _, err := s.GetAPIKeyByHash(ctx, "deadbeef"); err == nil {
+		t.Error("吊销后的 key 应不可用")
+	}
+}
+
+func TestAuditCacheDedup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "carol@example.com", "hash", "user")
+	k, _ := s.CreateAPIKey(ctx, u.ID, "sk_live_cd34", "cafe01", "")
+
+	score := 91.8
+	a1, err := s.CreateAudit(ctx, u.ID, &k.ID, "abc123", &score, "malicious", []byte(`[{"rule_id":"RS-001"}]`), []byte(`{"tool":"SkillGuard"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a1.ID == 0 || a1.SkillHash != "abc123" || a1.LevelKey != "malicious" {
+		t.Errorf("Audit = %+v", a1)
+	}
+
+	// 同日同 hash 命中缓存
+	cached, err := s.FindCachedAudit(ctx, u.ID, "abc123")
+	if err != nil || cached == nil || cached.ID != a1.ID {
+		t.Errorf("FindCachedAudit = %+v, err=%v", cached, err)
+	}
+	// 不同 hash 无缓存
+	if c, _ := s.FindCachedAudit(ctx, u.ID, "zzz"); c != nil {
+		t.Error("不同 hash 不应命中缓存")
+	}
+	// 其他用户无缓存（隔离）
+	u2, _ := s.CreateUser(ctx, "dave@example.com", "hash", "user")
+	if c, _ := s.FindCachedAudit(ctx, u2.ID, "abc123"); c != nil {
+		t.Error("缓存不应跨用户")
+	}
+
+	list, err := s.ListAudits(ctx, u.ID, 10)
+	if err != nil || len(list) != 1 || list[0].ID != a1.ID {
+		t.Errorf("ListAudits = %+v, err=%v", list, err)
+	}
+}
+
+func TestUsageQuota(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "erin@example.com", "hash", "user")
+
+	for i := 0; i < 3; i++ {
+		if err := s.CreateUsage(ctx, u.ID, nil, "static_audit", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.CountUsage(ctx, u.ID, "static_audit")
+	if err != nil || n != 3 {
+		t.Errorf("CountUsage = %d, err=%v, want 3", n, err)
+	}
+	// 带审计关联
+	score := 10.0
+	a, _ := s.CreateAudit(ctx, u.ID, nil, "h1", &score, "safe", []byte("[]"), []byte("{}"))
+	if err := s.CreateUsage(ctx, u.ID, &a.ID, "static_audit", 1); err != nil {
+		t.Fatal(err)
+	}
+	n, _ = s.CountUsage(ctx, u.ID, "static_audit")
+	if n != 4 {
+		t.Errorf("CountUsage = %d, want 4", n)
+	}
+	// 其他用户隔离
+	u2, _ := s.CreateUser(ctx, "frank@example.com", "hash", "user")
+	if n, _ := s.CountUsage(ctx, u2.ID, "static_audit"); n != 0 {
+		t.Errorf("其他用户 CountUsage = %d, want 0", n)
+	}
+}
+
+func TestQuotaExceededReturnsError(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u, _ := s.CreateUser(ctx, "grace@example.com", "hash", "user")
+	if err := s.UpdateQuota(ctx, u.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := s.CreateUsage(ctx, u.ID, nil, "static_audit", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exceeded, err := s.QuotaExceeded(ctx, u.ID, "static_audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exceeded {
+		t.Error("用量 2/2 应判定超限")
+	}
+	// 2 次以内不超限
+	u2, _ := s.CreateUser(ctx, "heidi@example.com", "hash", "user")
+	exceeded, err = s.QuotaExceeded(ctx, u2.ID, "static_audit")
+	if err != nil || exceeded {
+		t.Errorf("0 用量不应超限: exceeded=%v err=%v", exceeded, err)
+	}
+}
+
+var _ = time.Now // 保留 time 引用（后续迁移测试可能用到）
