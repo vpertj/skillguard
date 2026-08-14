@@ -18,23 +18,20 @@
 
 ## 快速开始
 
+> 当前为引擎内核阶段：CLI / Web 尚未实现，内核以单元测试验证。
+
 ```bash
-# 构建 CLI
-go build -o skillguard ./cmd/audit
-
-# 审计一个技能目录
-./skillguard audit ./path/to/skill
-
-# 启动 Web 服务
-go run ./cmd/server
+# 运行全部测试
+go test ./...
 ```
 
 ## 文档
 
-- [AI 协作指南](agents.md) — AI 编码助手必读
-- [产品方案](docs/产品方案.md) — 背景 / 客户 / 定价 / 路线图
+- [AI 协作指南](AGENTS.md) — AI 编码助手必读
+- [产品方案](docs/产品方案.md) — 背景 / 客户 / 定价 / 路线图（待写）
 - [检测规则库 V1](docs/规则库V1.md) — 24 条规则详细说明
 - [机器可读规则](rules/rules.yaml) — Go 引擎加载的规则定义
+- [架构规格](docs/ARCHITECTURE.md) — 分层架构、接口签名、评分算法
 
 ## 路线图
 
