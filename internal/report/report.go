@@ -69,6 +69,7 @@ func RenderMarkdown(d ReportData) string {
 	fmt.Fprintf(&b, "- 规则库版本: %s | 工具版本: %s\n", d.RulesVersion, d.Version)
 	fmt.Fprintf(&b, "- 扫描文件: %d（跳过 %d）\n", d.ScannedFiles, d.SkippedFiles)
 	fmt.Fprintf(&b, "- 风险评分: **%.1f / 100 — %s %s**\n", d.Score.Score, d.Score.Icon, d.Score.Level)
+	fmt.Fprintf(&b, "- 评分说明: 分数越高风险越高（0-20 安全 / 21-50 低风险 / 51-80 高风险 / 81-100 恶意）\n")
 	if len(d.Score.Notes) > 0 {
 		fmt.Fprintf(&b, "- 行为链加成: %s\n", strings.Join(d.Score.Notes, "；"))
 	}
