@@ -71,6 +71,15 @@ func (d Deps) handleAudit(c *gin.Context) {
 		return
 	}
 
+	// 配额检查（缓存命中不计费，故在缓存 miss 之后）
+	if exceeded, err := d.Store.QuotaExceeded(c.Request.Context(), uid, "static_audit"); err != nil {
+		abort(c, http.StatusInternalServerError, "配额查询失败")
+		return
+	} else if exceeded {
+		abort(c, http.StatusPaymentRequired, "免费配额已用尽，请升级套餐")
+		return
+	}
+
 	// 内核审计
 	res, err := analyzer.Analyze(files, root, d.Rules)
 	if err != nil {
@@ -144,4 +153,24 @@ func skillHash(files []string, root string) (string, error) {
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// handleUsage 返回用户用量与配额。
+func (d Deps) handleUsage(c *gin.Context) {
+	uid := currentUser(c)
+	used, err := d.Store.CountUsage(c.Request.Context(), uid, "static_audit")
+	if err != nil {
+		abort(c, http.StatusInternalServerError, "用量查询失败")
+		return
+	}
+	u, err := d.Store.GetUserByID(c.Request.Context(), uid)
+	if err != nil {
+		abort(c, http.StatusInternalServerError, "用户查询失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"kind":  "static_audit",
+		"used":  used,
+		"quota": u.QuotaAudits,
+	})
 }

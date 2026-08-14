@@ -148,3 +148,76 @@ func TestAuditFlowWithCacheAndUsage(t *testing.T) {
 		t.Errorf("坏文件 = %d, want 400", w2.Code)
 	}
 }
+
+// TestAuditQuotaExceeded 配额用尽后审计返回 402。
+func TestAuditQuotaExceeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := store.Open(context.Background(), testDSN())
+	if err != nil {
+		t.Skipf("跳过：无法连接测试库: %v", err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.Reset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.LoadRules(filepath.Join("..", "..", "rules", "rules.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs})
+
+	w := doJSON(t, r, "POST", "/v1/auth/register", `{"email":"quota@example.com","password":"password123"}`, "")
+	token := parseBody(t, w)["token"].(string)
+	w = doJSON(t, r, "POST", "/v1/keys", `{"name":"q"}`, token)
+	key := parseBody(t, w)["key"].(string)
+
+	// 配额压到 1
+	if err := st.UpdateQuota(context.Background(), 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// 第 1 次审计成功
+	pkgA := buildZip(t, map[string]string{"SKILL.md": "---\nname: a\n---\nok", "a.sh": "echo hi"})
+	if w := uploadAudit(t, r, key, pkgA, "a.zip"); w.Code != 201 {
+		t.Fatalf("首次审计 = %d %s", w.Code, w.Body.String())
+	}
+	// 第 2 次（不同内容）→ 402
+	pkgB := buildZip(t, map[string]string{"SKILL.md": "---\nname: b\n---\nok", "b.sh": "echo hello"})
+	if w := uploadAudit(t, r, key, pkgB, "b.zip"); w.Code != 402 {
+		t.Fatalf("超配额审计 = %d %s, want 402", w.Code, w.Body.String())
+	}
+	// 同内容重复提交仍命中缓存（不检查配额）
+	if w := uploadAudit(t, r, key, pkgA, "a.zip"); w.Code != 200 {
+		t.Errorf("缓存命中 = %d, want 200", w.Code)
+	}
+}
+
+// TestUsageEndpoint GET /v1/usage 返回用量与配额。
+func TestUsageEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := store.Open(context.Background(), testDSN())
+	if err != nil {
+		t.Skipf("跳过：无法连接测试库: %v", err)
+	}
+	t.Cleanup(st.Close)
+	if err := st.Reset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := rules.LoadRules(filepath.Join("..", "..", "rules", "rules.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRouter(Deps{Store: st, JWTSecret: "test-secret", Rules: rs})
+
+	w := doJSON(t, r, "POST", "/v1/auth/register", `{"email":"usage@example.com","password":"password123"}`, "")
+	token := parseBody(t, w)["token"].(string)
+
+	w = doJSON(t, r, "GET", "/v1/usage", "", token)
+	if w.Code != 200 {
+		t.Fatalf("usage = %d %s", w.Code, w.Body.String())
+	}
+	m := parseBody(t, w)
+	if m["used"].(float64) != 0 || m["quota"].(float64) != 100 || m["kind"] != "static_audit" {
+		t.Errorf("usage = %+v, want used=0 quota=100 kind=static_audit", m)
+	}
+}

@@ -48,6 +48,7 @@ func NewRouter(d Deps) *gin.Engine {
 			authed.DELETE("/keys/:id", d.handleRevokeKey)
 			authed.POST("/audit", d.handleAudit)
 			authed.GET("/audits", d.handleListAudits)
+			authed.GET("/usage", d.handleUsage)
 		}
 	}
 	return r
