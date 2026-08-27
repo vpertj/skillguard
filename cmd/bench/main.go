@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tianjun/skillguard/internal/analyzer"
+	"github.com/tianjun/skillguard/internal/llm"
 	"github.com/tianjun/skillguard/internal/parser"
 	"github.com/tianjun/skillguard/internal/rules"
 )
@@ -27,12 +29,16 @@ type sampleResult struct {
 	Findings int
 	Dur      time.Duration
 	Err      error
+	// LLM 二次裁决统计
+	Rejected int // 被判误报移除的命中数
+	LLMScore float64
 }
 
 func main() {
 	malDir := flag.String("malicious-dir", "internal/bench/testdata/malicious", "恶意样本目录（每个子目录一个技能包）")
 	benDir := flag.String("benign-dir", "internal/bench/testdata/benign", "良性样本目录（每个子目录一个技能包）")
 	rulesPath := flag.String("rules", "rules/rules.yaml", "规则库路径")
+	llmMode := flag.Bool("llm", false, "启用 LLM 二次裁决（需 DEEPSEEK_API_KEY）")
 	flag.Parse()
 
 	rs, err := rules.LoadRules(*rulesPath)
@@ -41,14 +47,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	mal := runSet(*malDir, rs)
-	ben := runSet(*benDir, rs)
+	var rp llm.ReviewProvider
+	if *llmMode {
+		key := os.Getenv("DEEPSEEK_API_KEY")
+		if key == "" {
+			fmt.Fprintln(os.Stderr, "--llm 需要 DEEPSEEK_API_KEY 环境变量")
+			os.Exit(1)
+		}
+		rp, err = llm.NewDeepSeek(key)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "初始化 LLM 失败: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
-	report(mal, ben)
+	mal := runSet(*malDir, rs, rp)
+	ben := runSet(*benDir, rs, rp)
+
+	report(mal, ben, rp != nil, len(rs.Rules()))
 }
 
 // runSet 对目录下每个子目录（技能包）跑引擎。
-func runSet(dir string, rs *rules.RuleSet) []sampleResult {
+func runSet(dir string, rs *rules.RuleSet, rp llm.ReviewProvider) []sampleResult {
 	var out []sampleResult
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -75,6 +95,22 @@ func runSet(dir string, rs *rules.RuleSet) []sampleResult {
 				res.Score = score.Score
 				res.Grade = grade
 				res.Findings = len(ar.Findings)
+				res.LLMScore = res.Score
+
+				// LLM 二次裁决：有命中时复核，误报移除后重评分
+				if rp != nil && len(ar.Findings) > 0 {
+					revReq := llm.ReviewRequest{
+						SkillBody: skillBodyOf(ar),
+						Findings:  toReviewInputs(ar.Findings),
+					}
+					revRes, err := rp.ReviewFindings(context.Background(), revReq)
+					if err == nil && len(revRes.Reviews) > 0 {
+						kept, rejected := analyzer.ApplyReview(ar.Findings, revRes.Reviews)
+						res.Rejected = len(rejected)
+						revScore := analyzer.Score(kept)
+						res.LLMScore = revScore.Score
+					}
+				}
 			}
 		}
 		res.Dur = time.Since(start)
@@ -83,8 +119,27 @@ func runSet(dir string, rs *rules.RuleSet) []sampleResult {
 	return out
 }
 
+// skillBodyOf 取 SKILL.md 正文预览作为 LLM 上下文。
+func skillBodyOf(ar *analyzer.Result) string {
+	if ar.SkillMD != nil {
+		return ar.SkillMD.BodyPreview
+	}
+	return ""
+}
+
+// toReviewInputs 静态命中 → 裁决输入。
+func toReviewInputs(findings []analyzer.Finding) []llm.ReviewFindingInput {
+	out := make([]llm.ReviewFindingInput, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, llm.ReviewFindingInput{
+			RuleID: f.RuleID, File: f.File, Snippet: f.Snippet,
+		})
+	}
+	return out
+}
+
 // report 输出基线与明细。
-func report(mal, ben []sampleResult) {
+func report(mal, ben []sampleResult, llmMode bool, ruleCount int) {
 	// 安全等级：score ≤ 20 才算"未检出"
 	isSafe := func(s sampleResult) bool { return s.Score <= 20 }
 
@@ -114,13 +169,27 @@ func report(mal, ben []sampleResult) {
 	fmt.Println("==========================================")
 	fmt.Println(" SkillGuard 引擎基准（基线报告）")
 	fmt.Println("==========================================")
-	fmt.Printf("规则库版本:  %s\n", "")
+	fmt.Printf("规则库:      %d 条规则\n", ruleCount)
 	fmt.Printf("恶意样本:    %d 个\n", len(mal))
 	fmt.Printf("良性样本:    %d 个\n", len(ben))
+	if llmMode {
+		fmt.Println("模式:       静态 + LLM 二次裁决")
+	}
 	fmt.Println("------------------------------------------")
 	fmt.Printf("恶意检出率:  %.1f%%  (%d/%d)   [目标 ≥85%%]\n", malRate, malDetected, len(mal))
 	fmt.Printf("良性误报率:  %.1f%%  (%d/%d)   [目标 ≤15%%]\n", benRate, len(ben)-benSafe, len(ben))
 	fmt.Printf("平均耗时:    %s\n", avgDur.Round(time.Millisecond))
+	if llmMode {
+		llmBenRate := reviewBenRate(ben)
+		llmMalRate := reviewMalRate(mal)
+		fmt.Println("------------------------------------------")
+		fmt.Printf("[LLM 裁决后] 恶意检出率: %.1f%%  误报率: %.1f%%\n", llmMalRate, llmBenRate)
+		rejected := 0
+		for _, s := range append(mal, ben...) {
+			rejected += s.Rejected
+		}
+		fmt.Printf("[LLM 裁决]   共移除误报命中 %d 条\n", rejected)
+	}
 	fmt.Println("------------------------------------------")
 	fmt.Println("分级分布（恶意样本）:")
 	printGradeDist(mal)
@@ -131,6 +200,34 @@ func report(mal, ben []sampleResult) {
 	fmt.Println("误报清单（良性样本被判非安全 >20 分）:")
 	printFalsePositives(ben)
 	fmt.Println("==========================================")
+}
+
+// reviewBenRate LLM 裁决后的良性误报率（用 LLMScore 判断）。
+func reviewBenRate(ben []sampleResult) float64 {
+	n := 0
+	for _, s := range ben {
+		if s.LLMScore > 20 {
+			n++
+		}
+	}
+	if len(ben) == 0 {
+		return 0
+	}
+	return float64(n) / float64(len(ben)) * 100
+}
+
+// reviewMalRate LLM 裁决后的恶意检出率。
+func reviewMalRate(mal []sampleResult) float64 {
+	n := 0
+	for _, s := range mal {
+		if s.LLMScore > 20 {
+			n++
+		}
+	}
+	if len(mal) == 0 {
+		return 0
+	}
+	return float64(n) / float64(len(mal)) * 100
 }
 
 func avgDuration(samples []sampleResult) time.Duration {
