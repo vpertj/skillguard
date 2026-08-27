@@ -316,3 +316,47 @@ rules:
       - '(?:\\x[0-9A-Fa-f]{2}){50,}'
     rationale: 超长 base64/hex 载荷暗示隐藏的可执行内容或编码后的恶意脚本。
     false_positive_note: 内嵌资源（图片、字体）也以 base64 出现，medium 权重。
+
+  - id: RS-025
+    name: 内嵌可疑分发包
+    category: CODE_EXECUTION
+    severity: critical
+    weight: 85
+    detection: file_ext
+    patterns:
+      - .zip
+      - .7z
+      - .rar
+      - .dmg
+      - .exe
+      - .msi
+      - .pkg
+      - .apk
+      - .bin
+      - .whl
+      - .jar
+      - .tar.gz
+    rationale: 技能包内嵌压缩包/可执行文件是恶意分发特征（ClawHavoc 用密码保护 ZIP 绕过杀软，Snyk suspicious download 类别）。
+    false_positive_note: 技能自带测试夹具/示例资源可能合法携带 zip，需结合其余命中判断。
+
+  - id: RS-026
+    name: Unicode 走私/零宽混淆
+    category: OBFSUSCATION
+    severity: critical
+    weight: 85
+    detection: regex
+    patterns:
+            - '[\x{E0000}-\x{E007F}\u200B\u200C\u200D]{2,}'
+    rationale: Unicode 标签字符（U+E0000-E007F）与零宽字符用于隐藏指令（ASCII smuggling/embracethered 手法），渲染不可见但 agent 可解码执行。
+    false_positive_note: 单个 BOM（U+FEFF）不算，需连续 2+ 个走私字符。
+
+  - id: RS-027
+    name: bang 命令执行
+    category: CODE_EXECUTION
+    severity: high
+    weight: 75
+    detection: regex
+    patterns:
+      - '(?:^|\s)!`[^`\n]+`'
+    rationale: OpenClaw 等平台的 bang 语法（!`命令`）会让 agent 直接执行 shell 命令，技能用它下发命令执行指令。
+    false_positive_note: 需与平台 bang 语法一致才命中。

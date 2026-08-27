@@ -1,0 +1,1 @@
+In Excel it evaluates to `#VALUE!` and shows an error.

@@ -222,12 +222,29 @@ type Result struct {
 // files 为相对 root 的路径列表（parser.CollectFiles 的产物）。
 func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 	res := &Result{LLMReview: rs.LLMOnly()}
+	extRules := rs.FileExtOnly()
 	for _, f := range files {
 		path := filepath.Join(root, filepath.FromSlash(f))
 		info, err := os.Stat(path)
 		if err != nil {
 			res.SkippedFiles++
 			continue
+		}
+		// 文件级检测：扩展名黑名单（zip/可执行等恶意分发特征）
+		if len(extRules) > 0 && !info.IsDir() {
+			lower := strings.ToLower(f)
+			for _, r := range extRules {
+				for _, ext := range r.Patterns {
+					if strings.HasSuffix(lower, strings.ToLower(ext)) {
+						res.Findings = append(res.Findings, Finding{
+							RuleID: r.ID, RuleName: r.Name, Category: r.Category,
+							Severity: r.Severity, Weight: r.Weight, Detection: r.Detection,
+							File: f, Line: 1, Snippet: "内嵌分发包: " + filepath.Base(f),
+						})
+						break
+					}
+				}
+			}
 		}
 		if !parser.IsScannable(path, info.Size()) {
 			res.SkippedFiles++
