@@ -227,8 +227,8 @@ func TestRealRulesFileLoads(t *testing.T) {
 	if rs.Version() != "1.0" {
 		t.Errorf("Version = %q, want 1.0", rs.Version())
 	}
-	if len(rs.Rules()) != 32 {
-		t.Errorf("Rules = %d, want 32", len(rs.Rules()))
+	if len(rs.Rules()) != 36 {
+		t.Errorf("Rules = %d, want 36", len(rs.Rules()))
 	}
 	if len(rs.FailedRuleIDs()) != 0 {
 		t.Errorf("FailedRuleIDs = %v, want empty（所有正则必须可编译）", rs.FailedRuleIDs())
@@ -236,8 +236,8 @@ func TestRealRulesFileLoads(t *testing.T) {
 	if got := rs.LLMOnly(); len(got) != 2 || got[0].ID != "RS-018" || got[1].ID != "RS-019" {
 		t.Errorf("LLMOnly = %v, want [RS-018 RS-019]", got)
 	}
-	if got := rs.AutoDetectable(); len(got) != 29 {
-		t.Errorf("AutoDetectable = %d, want 29", len(got))
+	if got := rs.AutoDetectable(); len(got) != 33 {
+		t.Errorf("AutoDetectable = %d, want 33", len(got))
 	}
 	if got := rs.FileExtOnly(); len(got) != 1 || got[0].ID != "RS-025" {
 		t.Errorf("FileExtOnly = %v, want [RS-025]", got)

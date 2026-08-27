@@ -423,3 +423,54 @@ rules:
       - '<!--[^>]*[A-Za-z0-9+/=]{40,}[^>]*-->'
     rationale: HTML 注释内嵌大段 base64（ClawHavoc 实证手法：解码后为“忽略指令/读取 .env/发送外联”注入），渲染不可见但 agent 可解码执行。
     false_positive_note: 正常注释不含 40+ 字符 base64 块；命中后 LLM 复核解码内容。
+
+  - id: RS-033
+    name: 钱包与助记词访问
+    category: DATA_THEFT
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - '(?i)\b(?:seed|recovery|mnemonic)[-_]?phrase\b'
+      - '(?i)\bwallet\.dat\b'
+      - '(?i)\bprivate[_-]?key\b[^\n]{0,60}(?:solana|phantom|metamask|keystore)'
+      - '(?i)\b(?:solana|phantom|metamask|keystore)[^\n]{0,60}\bprivate[_-]?key\b'
+    rationale: 直接访问钱包私钥/助记词是窃取加密资产的前置动作（ClawHavoc crypto-lure 类别）。
+    false_positive_note: 钱包相关教程/文档可能提及概念，需 LLM 复核上下文。
+
+  - id: RS-034
+    name: 伪装安全工具
+    category: PROMPT_INJECTION
+    severity: high
+    weight: 75
+    detection: regex
+    patterns:
+      - '(?i)\b(?:security|safety|audit|scan|vetting|protection)[-_\s]?scanner\b'
+      - '(?i)\bskill[_-]?(?:scanner|auditor|vetter|security)\b'
+    rationale: ClawHavoc 含伪装成安全扫描工具的恶意技能（fake security-scanning skills），声称安全实则窃取，安全工具身份是信任伪装。
+    false_positive_note: 真实的技能安全扫描工具（如 Clawdex/SkillGuard 自身）也会命中——仅提示需 LLM 复核意图，不直接定罪。
+
+  - id: RS-035
+    name: 系统提示冒充
+    category: PROMPT_INJECTION
+    severity: critical
+    weight: 85
+    detection: regex
+    patterns:
+      - '(?i)\byou are now (?:in|entering)?\s*(?:maintenance|root|admin|system|developer)\s*mode\b'
+      - '(?i)\btreat (?:all|every)\s*(?:system|developer)?\s*directives?\s*as\s*user\s*input\b'
+      - '(?i)\bignore\s+(?:all\s+)?(?:system|developer)\s+(?:directives?|instructions|prompts?)\b'
+      - '(?i)\bdo not (?:show|reveal|print)\s+(?:this|these|the)\s*(?:instructions?|prompt)\b'
+    rationale: 冒充系统/开发者角色或以"忽略系统指令"诱导越权（DAN 风格越狱、多段拆分注入的经典片段）。
+    false_positive_note: 安全研究文档可能引用此类句式（讨论区），LLM 复核上下文。
+
+  - id: RS-036
+    name: 环境外传目标
+    category: NETWORK_EXFIL
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - '(?i)\b(?:webhook|pastebin|transfer\.sh|file\.io|0x0\.st|ngrok|glot\.io|rentry\.co|analytics-svc)\b[^\n]{0,80}'
+    rationale: 一次性粘贴站/webhook/隧道服务是窃密外传的常见目标（ClawHavoc 用 glot.io/rentry.co/webhook.site 分发与回传）。
+    false_positive_note: 正常技能引用 GitHub raw 或官方 API 不命中；命中后 LLM 复核是否与敏感数据关联。
