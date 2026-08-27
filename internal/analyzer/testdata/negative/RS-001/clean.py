@@ -1,2 +1,2 @@
-def evaluate(x):
-    return x * 2
+pattern = re.compile(r"[a-z]+")
+var = code.compile(x)

@@ -11,9 +11,9 @@ rules:
     patterns:
       - \beval\s*\(
       - \bexec\s*\(
-      - \bcompile\s*\(
+      - (?<![.\w])compile\s*\(
     rationale: eval/exec/compile 是多数语言的动态代码执行入口，恶意技能用它执行任意载荷。
-    false_positive_note: 少数元编程/插件化代码会合法使用 eval，需结合上下文复核。
+    false_positive_note: 排除 re.compile/code.compile 等合法正则/字节码编译（2026-08-27 基准误报修复）；少数元编程/插件化代码会合法使用 eval，需结合上下文复核。
 
   - id: RS-002
     name: Shell 命令执行
@@ -50,7 +50,7 @@ rules:
     weight: 80
     detection: regex
     patterns:
-      - '`[^`\n]+`'
+      - '`[^`\n]*(?:https?://|curl|wget|bash|sh|python|node|rm|sudo|powershell|exec)[^`\n]*`'
       - \$\([^)\n]+\)
     rationale: 反引号/$() 命令替换可在普通字符串处理中隐藏命令执行。
     false_positive_note: Makefile 的 $(VAR) 变量引用会误报，核对语言上下文。
