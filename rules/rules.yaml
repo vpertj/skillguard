@@ -360,3 +360,66 @@ rules:
       - '(?:^|\s)!`[^`\n]+`'
     rationale: OpenClaw 等平台的 bang 语法（!`命令`）会让 agent 直接执行 shell 命令，技能用它下发命令执行指令。
     false_positive_note: 需与平台 bang 语法一致才命中。
+
+  - id: RS-028
+    name: API 密钥明文
+    category: CREDENTIAL_HUNT
+    severity: critical
+    weight: 85
+    detection: regex
+    patterns:
+      - '\bsk-[A-Za-z0-9]{20,}\b'
+      - '\bsk_live_[A-Za-z0-9]{20,}\b'
+      - \bapi[_-]?key\s*[:=]\s*["'][A-Za-z0-9+/=]{16,}["']
+      - \bsecret\s*[:=]\s*["'][A-Za-z0-9+/=]{16,}["']
+    rationale: 技能内硬编码 API 密钥是明文凭据泄露（Snyk secret detection 类别），技能可能直接使用或外传。
+    false_positive_note: 占位符（xxx/example/demo）不匹配；文档示例中可能提及格式，需 LLM 复核。
+
+  - id: RS-029
+    name: 云厂商密钥
+    category: CREDENTIAL_HUNT
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - '\bAKIA[0-9A-Z]{16}\b'
+      - '\bASIA[0-9A-Z]{16}\b'
+      - '\baws_secret_access_key\s*[:=]'
+      - '\bAIza[0-9A-Za-z_-]{30,}\b'
+    rationale: AWS/GCP 云凭证硬编码，泄露可直接导致云资源被接管（Snyk 高危 secret）。
+    false_positive_note: 示例代码中常见占位，需结合上下文。
+
+  - id: RS-030
+    name: 私钥块
+    category: CREDENTIAL_HUNT
+    severity: critical
+    weight: 95
+    detection: regex
+    patterns:
+      - '-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'
+    rationale: 技能包内嵌私钥块意味着持有了可签名的敏感凭据——高置信窃取/仿冒信号。
+    false_positive_note: 生成密钥的文档教程可能包含示例块（通常用假密钥）。
+
+  - id: RS-031
+    name: 平台访问令牌
+    category: CREDENTIAL_HUNT
+    severity: high
+    weight: 80
+    detection: regex
+    patterns:
+      - '\bghp_[A-Za-z0-9]{36}\b'
+      - '\bxox[baprs]-[A-Za-z0-9-]{10,}'
+      - '\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b'
+    rationale: GitHub/Slack/Telegram bot token 硬编码（各平台密钥格式），泄露即账户接管。
+    false_positive_note: 需完整匹配平台格式，普通数字串不命中。
+
+  - id: RS-032
+    name: 注释隐藏注入载荷
+    category: OBFSUSCATION
+    severity: critical
+    weight: 90
+    detection: regex
+    patterns:
+      - '<!--[^>]*[A-Za-z0-9+/=]{40,}[^>]*-->'
+    rationale: HTML 注释内嵌大段 base64（ClawHavoc 实证手法：解码后为“忽略指令/读取 .env/发送外联”注入），渲染不可见但 agent 可解码执行。
+    false_positive_note: 正常注释不含 40+ 字符 base64 块；命中后 LLM 复核解码内容。

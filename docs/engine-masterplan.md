@@ -54,7 +54,7 @@ secret detection / third-party content exposure / unverifiable dependencies / di
 |---|---|---|---|
 | 真实样本检出率 | 91.7%（44/48） | **100%（48/48）✅** | ≥95%（持续新样本） |
 | 误报率 | 60.6%（20/33） | ≤30% | ≤10% |
-| 规则库 | 24 条 | **27 条**（进行中） | 100+ |
+| 规则库 | 24 条 | **32 条**（进行中） | 100+ |
 | 扫描速度 | 39ms/包 | — | <10s（大包） |
 | 生态 | 私有 | 开源发布 | GitHub Action + ClawHub 预扫描 |
 
@@ -72,7 +72,7 @@ secret detection / third-party content exposure / unverifiable dependencies / di
   - [x] nano-banana-pro：17.5 分差一点，补权重（RS-025 zip 分发包）
   - [x] snyk-skill-with-commands：分析命中源（RS-027 bang 命令）
   - [x] progressive-memory：静态干净 → 标记为 LLM 层检测对象（RS-025 zip 分发包，代码执行维 w=85）
-- [ ] 规则库 24→40+（补 Snyk 8 类缺口：secret 检测、typosquatting、可疑下载等）
+- [ ] 规则库 24→40+（进行中：32 条——secret 检测 RS-028~031、注释隐藏注入 RS-032 已加）
 - [x] LLM 二次裁决：静态命中 → 意图复核 → 压误报（ReviewFindings + ApplyReview + bench --llm，真实基准验证中）
 - [ ] 基准门禁：每次改动跑 cmd/bench，检出率/误报率变化进 commit message
 
