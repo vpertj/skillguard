@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 func testDSN() string {

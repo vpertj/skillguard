@@ -16,10 +16,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/tianjun/skillguard/internal/analyzer"
-	"github.com/tianjun/skillguard/internal/llm"
-	"github.com/tianjun/skillguard/internal/parser"
-	"github.com/tianjun/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/analyzer"
+	"github.com/vpertj/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/parser"
+	"github.com/vpertj/skillguard/internal/rules"
 )
 
 type sampleResult struct {

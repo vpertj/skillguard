@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/tianjun/skillguard/internal/cryptx"
-	"github.com/tianjun/skillguard/internal/httpapi"
-	"github.com/tianjun/skillguard/internal/llm"
-	"github.com/tianjun/skillguard/internal/rules"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/cryptx"
+	"github.com/vpertj/skillguard/internal/httpapi"
+	"github.com/vpertj/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 func envOr(key, def string) string {

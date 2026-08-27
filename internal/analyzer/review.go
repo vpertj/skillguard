@@ -1,7 +1,7 @@
 package analyzer
 
 import (
-	"github.com/tianjun/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/llm"
 )
 
 // ApplyReview 把 LLM 二次裁决应用到静态命中（二值 R2 最优配置，2026-08-27 实验确定；

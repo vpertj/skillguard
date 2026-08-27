@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tianjun/skillguard/internal/llm"
-	"github.com/tianjun/skillguard/internal/rules"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 // llmMock 可配置的 mock LLM 服务器。

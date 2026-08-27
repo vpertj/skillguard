@@ -1,4 +1,4 @@
-module github.com/tianjun/skillguard
+module github.com/vpertj/skillguard
 
 go 1.25.0
 

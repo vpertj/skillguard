@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tianjun/skillguard/internal/auth"
-	"github.com/tianjun/skillguard/internal/llm"
-	"github.com/tianjun/skillguard/internal/rules"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/auth"
+	"github.com/vpertj/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 // Deps 依赖注入。

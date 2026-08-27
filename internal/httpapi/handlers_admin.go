@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tianjun/skillguard/internal/cryptx"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/cryptx"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 // requireAdmin 权限中间件：必须在 authenticate 之后使用。

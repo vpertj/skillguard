@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tianjun/skillguard/internal/analyzer"
-	"github.com/tianjun/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/analyzer"
+	"github.com/vpertj/skillguard/internal/rules"
 )
 
 // ToolName 报告工具名。

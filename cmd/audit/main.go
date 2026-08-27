@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tianjun/skillguard/internal/analyzer"
-	"github.com/tianjun/skillguard/internal/parser"
-	"github.com/tianjun/skillguard/internal/report"
-	"github.com/tianjun/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/analyzer"
+	"github.com/vpertj/skillguard/internal/parser"
+	"github.com/vpertj/skillguard/internal/report"
+	"github.com/vpertj/skillguard/internal/rules"
 )
 
 func main() {

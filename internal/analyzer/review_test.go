@@ -3,7 +3,7 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/tianjun/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/llm"
 )
 
 // 二值裁决（R2 最优）：malicious/suspicious 保留、benign 移除、未覆盖保留

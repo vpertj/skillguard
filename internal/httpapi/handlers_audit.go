@@ -15,11 +15,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tianjun/skillguard/internal/analyzer"
-	"github.com/tianjun/skillguard/internal/llm"
-	"github.com/tianjun/skillguard/internal/parser"
-	"github.com/tianjun/skillguard/internal/report"
-	"github.com/tianjun/skillguard/internal/store"
+	"github.com/vpertj/skillguard/internal/analyzer"
+	"github.com/vpertj/skillguard/internal/llm"
+	"github.com/vpertj/skillguard/internal/parser"
+	"github.com/vpertj/skillguard/internal/report"
+	"github.com/vpertj/skillguard/internal/store"
 )
 
 // parseUpload 解析上传的技能包（multipart file 字段，zip）。

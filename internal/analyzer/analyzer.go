@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tianjun/skillguard/internal/astscan"
-	"github.com/tianjun/skillguard/internal/parser"
-	"github.com/tianjun/skillguard/internal/rules"
+	"github.com/vpertj/skillguard/internal/astscan"
+	"github.com/vpertj/skillguard/internal/parser"
+	"github.com/vpertj/skillguard/internal/rules"
 )
 
 // Finding 单次规则命中（ARCHITECTURE §3.3）。
