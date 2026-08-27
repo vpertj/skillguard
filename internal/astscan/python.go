@@ -45,6 +45,7 @@ var (
 )
 
 // ScanPython 解析 Python 源码，返回危险调用链检测结果。
+// 第一阶段：subprocess 字面量参数 + 简易变量跟踪（文件级赋值收集，最近赋值优先）。
 func ScanPython(src []byte, file string) []Danger {
 	if pythonParser == nil {
 		pythonParser = pythonParserInit()
@@ -55,11 +56,14 @@ func ScanPython(src []byte, file string) []Danger {
 	}
 	defer tree.Close()
 
+	// 第一遍：收集赋值（var → 值文本），重复赋值取最新
+	assigns := collectAssignments(tree.RootNode(), src)
+
 	var out []Danger
 	var walk func(node *tree_sitter.Node)
 	walk = func(node *tree_sitter.Node) {
 		if node.Kind() == "call" {
-			if d := checkSubprocessCall(node, src, file); d != nil {
+			if d := checkSubprocessCall(node, src, file, assigns); d != nil {
 				out = append(out, *d)
 			}
 		}
@@ -71,8 +75,32 @@ func ScanPython(src []byte, file string) []Danger {
 	return out
 }
 
+// collectAssignments 收集文件级赋值：identifier = list/string/concatenated_string（最近赋值覆盖）。
+func collectAssignments(root *tree_sitter.Node, src []byte) map[string]string {
+	out := make(map[string]string)
+	var walk func(node *tree_sitter.Node)
+	walk = func(node *tree_sitter.Node) {
+		if node.Kind() == "assignment" {
+			left := node.ChildByFieldName("left")
+			right := node.ChildByFieldName("right")
+			if left != nil && left.Kind() == "identifier" && right != nil {
+				switch right.Kind() {
+				case "list", "string", "concatenated_string", "binary_operator":
+					out[left.Utf8Text(src)] = right.Utf8Text(src)
+				}
+			}
+		}
+		for i := uint(0); i < node.ChildCount(); i++ {
+			walk(node.Child(i))
+		}
+	}
+	walk(root)
+	return out
+}
+
 // checkSubprocessCall 检查 subprocess.Xxx(...) 调用是否携带危险参数。
-func checkSubprocessCall(node *tree_sitter.Node, src []byte, file string) *Danger {
+// 参数为变量时解析赋值内容（简易数据流）。
+func checkSubprocessCall(node *tree_sitter.Node, src []byte, file string, assigns map[string]string) *Danger {
 	funcName := node.ChildByFieldName("function")
 	if funcName == nil || funcName.Kind() != "attribute" {
 		return nil
@@ -86,14 +114,23 @@ func checkSubprocessCall(node *tree_sitter.Node, src []byte, file string) *Dange
 		return nil
 	}
 
-	// 提取第一个参数（列表/字符串）
+	// 提取第一个参数（列表/字符串/变量）
 	argsNode := node.ChildByFieldName("arguments")
 	if argsNode == nil {
 		return nil
 	}
 	firstArg := firstArgOf(argsNode, src)
 
-	// 危险判定：含危险命令词 + 含网络/管道/脚本执行特征
+	// 变量引用 → 查赋值
+	if isIdentifier(firstArg) {
+		if v, ok := assigns[firstArg]; ok {
+			firstArg = v
+		} else {
+			return nil // 未赋值的变量（外部传入），不误报
+		}
+	}
+
+	// 危险判定：含危险命令词 + 含网络/管道特征
 	if dangerCmd.MatchString(firstArg) && netIndicator.MatchString(firstArg) {
 		return &Danger{
 			RuleID:   "RS-037",
@@ -106,7 +143,7 @@ func checkSubprocessCall(node *tree_sitter.Node, src []byte, file string) *Dange
 			Detail:   "subprocess 调用携带下载/管道执行特征（curl|bash 类）",
 		}
 	}
-	// 纯 bash -c 脚本执行（无网络特征也算高危，可能执行任意命令）
+	// 纯 bash -c 脚本执行（无网络特征也算高危）
 	if dangerCmd.MatchString(firstArg) && strings.Contains(firstArg, "-c") {
 		return &Danger{
 			RuleID:   "RS-037",
@@ -122,12 +159,28 @@ func checkSubprocessCall(node *tree_sitter.Node, src []byte, file string) *Dange
 	return nil
 }
 
-// firstArgOf 提取调用第一个参数（列表字面量则取整个列表文本）。
+// isIdentifier 判断是否为简单变量引用（非列表/字符串字面量）。
+func isIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	if s[0] == '[' || s[0] == '"' || s[0] == '\'' {
+		return false
+	}
+	for _, r := range s {
+		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+// firstArgOf 提取调用第一个参数（列表/字符串/变量引用）。
 func firstArgOf(argsNode *tree_sitter.Node, src []byte) string {
 	for i := uint(0); i < argsNode.ChildCount(); i++ {
 		c := argsNode.Child(i)
 		switch c.Kind() {
-		case "list", "string", "concatenated_string", "call":
+		case "list", "string", "concatenated_string", "call", "identifier":
 			return c.Utf8Text(src)
 		}
 	}
