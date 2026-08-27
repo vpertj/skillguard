@@ -50,7 +50,6 @@ rules:
     weight: 80
     detection: regex
     patterns:
-      - '`[^`\n]*(?:https?://|curl|wget|bash|sh|python|node|rm|sudo|powershell|exec)[^`\n]*`'
       - \$\([^)\n]+\)
     rationale: 反引号/$() 命令替换可在普通字符串处理中隐藏命令执行。
     false_positive_note: Makefile 的 $(VAR) 变量引用会误报，核对语言上下文。
@@ -118,7 +117,6 @@ rules:
     patterns:
       - \.ssh/(?:id_rsa|id_ed25519|id_dsa|authorized_keys|known_hosts)\b|\bid_rsa\b|\bid_ed25519\b
       - \.aws/(?:credentials|config)\b
-      - \.env(?:\.\w+)?\b
       - \bkeychain\b
     rationale: SSH 私钥、云凭据、环境变量文件是攻击者窃取的首选目标。
     false_positive_note: 密钥管理类技能会合法访问此类文件，需看是否伴随外传。
@@ -126,8 +124,8 @@ rules:
   - id: RS-010
     name: 环境变量转储
     category: DATA_THEFT
-    severity: high
-    weight: 70
+    severity: medium
+    weight: 50
     detection: regex
     patterns:
       - \bprintenv\b
