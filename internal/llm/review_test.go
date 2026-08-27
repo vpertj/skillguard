@@ -129,7 +129,9 @@ func TestBuildReviewSystemPromptNotEmpty(t *testing.T) {
 	if strings.TrimSpace(reviewSystemPrompt) == "" {
 		t.Fatal("reviewSystemPrompt should not be empty")
 	}
-	if !strings.Contains(reviewSystemPrompt, "误报") {
-		t.Fatalf("review prompt should instruct false-positive rejection: %s", fmt.Sprintf("%.60s", reviewSystemPrompt))
+	for _, kw := range []string{"malicious", "suspicious", "benign"} {
+		if !strings.Contains(reviewSystemPrompt, kw) {
+			t.Fatalf("review prompt should instruct %s verdict: %s", kw, fmt.Sprintf("%.80s", reviewSystemPrompt))
+		}
 	}
 }

@@ -214,7 +214,7 @@ func (d Deps) handleAuditDeep(c *gin.Context) {
 				llmResults = append(llmResults, map[string]any{
 					"rule_id":    "REVIEW:" + rv.RuleID,
 					"file":       rv.File,
-					"verdict":    map[bool]string{true: "confirmed", false: "rejected"}[rv.Confirmed],
+					"verdict":    rv.EffectiveVerdict(), // malicious | suspicious | benign
 					"confidence": rv.Confidence,
 					"reason":     rv.Reason,
 				})

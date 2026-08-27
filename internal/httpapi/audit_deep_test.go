@@ -205,8 +205,8 @@ func TestAuditDeepWithReview(t *testing.T) {
 		it := item.(map[string]any)
 		if rid, _ := it["rule_id"].(string); strings.HasPrefix(rid, "REVIEW:") {
 			hasReview = true
-			if it["verdict"] != "rejected" {
-				t.Errorf("REVIEW verdict = %v, want rejected", it["verdict"])
+			if it["verdict"] != "benign" {
+				t.Errorf("REVIEW verdict = %v, want benign（mock 判误报）", it["verdict"])
 			}
 		}
 	}
