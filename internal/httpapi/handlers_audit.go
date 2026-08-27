@@ -192,9 +192,41 @@ func (d Deps) handleAuditDeep(c *gin.Context) {
 	llmResults := buildLLMResults(llmRes)
 	llmResultsJSON, _ := json.Marshal(llmResults)
 
+	// 二次裁决：LLM 复核静态命中（误报移除后重评分）。失败降级：保留原静态报告。
+	reviewedScore := score
+	if d.LLM.Enabled() && len(res.Findings) > 0 {
+		revRes, revErr := d.LLM.ReviewFindings(c.Request.Context(), llm.ReviewRequest{
+			SkillName:        llmReq.SkillName,
+			SkillDescription: llmReq.SkillDescription,
+			SkillBody:        llmReq.SkillBody,
+			Findings:         toReviewInputs(res.Findings),
+		})
+		if revErr != nil {
+			log.Printf("[httpapi] LLM 二次裁决失败（降级为静态报告）: %v", revErr)
+		} else if len(revRes.Reviews) > 0 {
+			kept, rejected := analyzer.ApplyReview(res.Findings, revRes.Reviews)
+			reviewedScore = analyzer.Score(kept)
+			// 报告用裁决后命中重渲染
+			res.Findings = kept
+			reportJSON, _ = report.RenderJSON(report.BuildReportData(res, reviewedScore, "upload.zip", d.Rules.Meta()))
+			// llm_results 追加裁决明细
+			for _, rv := range revRes.Reviews {
+				llmResults = append(llmResults, map[string]any{
+					"rule_id":    "REVIEW:" + rv.RuleID,
+					"file":       rv.File,
+					"verdict":    map[bool]string{true: "confirmed", false: "rejected"}[rv.Confirmed],
+					"confidence": rv.Confidence,
+					"reason":     rv.Reason,
+				})
+			}
+			llmResultsJSON, _ = json.Marshal(llmResults)
+			log.Printf("[httpapi] 二次裁决: 移除误报命中 %d 条，评分 %.1f → %.1f", len(rejected), score.Score, reviewedScore.Score)
+		}
+	}
+
 	findingsJSON, _ := json.Marshal(res.Findings)
-	scoreVal := score.Score
-	a, err := d.Store.CreateAudit(c.Request.Context(), uid, currentAPIKeyID(c), hash, &scoreVal, score.LevelKey, findingsJSON, reportJSON, llmResultsJSON)
+	scoreVal := reviewedScore.Score
+	a, err := d.Store.CreateAudit(c.Request.Context(), uid, currentAPIKeyID(c), hash, &scoreVal, reviewedScore.LevelKey, findingsJSON, reportJSON, llmResultsJSON)
 	if err != nil {
 		log.Printf("[httpapi] 审计入库失败: %v", err)
 		abort(c, http.StatusInternalServerError, "审计入库失败")
@@ -204,6 +236,15 @@ func (d Deps) handleAuditDeep(c *gin.Context) {
 		log.Printf("[httpapi] 用量记录失败: %v", err)
 	}
 	c.JSON(http.StatusCreated, gin.H{"cached": false, "report": json.RawMessage(reportJSON), "llm_results": json.RawMessage(llmResultsJSON)})
+}
+
+// toReviewInputs 静态命中 → LLM 裁决输入。
+func toReviewInputs(findings []analyzer.Finding) []llm.ReviewFindingInput {
+	out := make([]llm.ReviewFindingInput, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, llm.ReviewFindingInput{RuleID: f.RuleID, File: f.File, Snippet: f.Snippet})
+	}
+	return out
 }
 
 // collectLLMContext 收集 SKILL.md 声明与脚本内容摘要，供 LLM 比对。

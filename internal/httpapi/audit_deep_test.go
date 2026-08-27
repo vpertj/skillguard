@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,14 +17,32 @@ import (
 )
 
 // llmMock 可配置的 mock LLM 服务器。
+// routes 非空时按请求体子串匹配返回不同 body（用于区分 Analyze 与 ReviewFindings）。
 type llmMock struct {
 	status int
 	body   string
+	routes map[string]string
 }
 
 const suspiciousLLMBody = `{"choices":[{"message":{"content":"{\"role_impersonation\":{\"suspicious\":true,\"confidence\":\"high\",\"reason\":\"声称官方但行为可疑\"},\"claim_mismatch\":{\"suspicious\":true,\"confidence\":\"medium\",\"reason\":\"声称无害但读取敏感文件\"}}"}}]}`
 
 const cleanLLMBody = `{"choices":[{"message":{"content":"{\"role_impersonation\":{\"suspicious\":false,\"confidence\":\"high\",\"reason\":\"无冒充\"},\"claim_mismatch\":{\"suspicious\":false,\"confidence\":\"high\",\"reason\":\"一致\"}}"}}]}`
+
+// reviewRejectedBody 构造 mock 二次裁决响应：指定命中判为误报。
+func reviewRejectedBody(t *testing.T, reviews []map[string]any) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"reviews": reviews})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := json.Marshal(map[string]any{"choices": []any{
+		map[string]any{"message": map[string]any{"content": string(payload)}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(msg)
+}
 
 // newDeepRouter 测试路由；mock 为 nil 时模拟未配置 LLM。
 func newDeepRouter(t *testing.T, mock *llmMock) (*gin.Engine, *store.Store) {
@@ -49,6 +69,16 @@ func newDeepRouter(t *testing.T, mock *llmMock) (*gin.Engine, *store.Store) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(mock.status)
+			// routes 非空：按请求体子串匹配（区分 Analyze / ReviewFindings）
+			if len(mock.routes) > 0 {
+				body, _ := io.ReadAll(r.Body)
+				for key, b := range mock.routes {
+					if strings.Contains(string(body), key) {
+						w.Write([]byte(b))
+						return
+					}
+				}
+			}
 			w.Write([]byte(mock.body))
 		}))
 		t.Cleanup(srv.Close)
@@ -147,5 +177,74 @@ func TestAuditDeepLLMFailureNoCharge(t *testing.T) {
 	// 失败不扣配额
 	if n, _ := st.CountUsage(context.Background(), 1, "llm_review"); n != 0 {
 		t.Errorf("LLM 失败不应计费, usage = %d", n)
+	}
+}
+
+// 二次裁决：静态命中被 LLM 判为误报 → 移除 → 分数下降 + llm_results 含 REVIEW 明细
+func TestAuditDeepWithReview(t *testing.T) {
+	reviewBody := reviewRejectedBody(t, []map[string]any{
+		{"rule_id": "RS-027", "file": "SKILL.md", "snippet": "!`git diff`", "confirmed": false, "confidence": "high", "reason": "文档示例命令"},
+	})
+	r, _ := newDeepRouter(t, &llmMock{
+		status: 200,
+		body:   suspiciousLLMBody,
+		routes: map[string]string{"静态命中列表": reviewBody},
+	})
+	key := deepUser(t, r)
+
+	w := uploadAuditPath(t, r, key, maliciousZip(t), "evil.zip", "/v1/audit/deep")
+	if w.Code != 201 {
+		t.Fatalf("deep audit = %d %s", w.Code, w.Body.String())
+	}
+	m := parseBody(t, w)
+	results := m["llm_results"].([]any)
+
+	// 2 条 RS-018/019 + 至少 1 条 REVIEW 明细
+	hasReview := false
+	for _, item := range results {
+		it := item.(map[string]any)
+		if rid, _ := it["rule_id"].(string); strings.HasPrefix(rid, "REVIEW:") {
+			hasReview = true
+			if it["verdict"] != "rejected" {
+				t.Errorf("REVIEW verdict = %v, want rejected", it["verdict"])
+			}
+		}
+	}
+	if !hasReview {
+		t.Fatalf("llm_results 缺少 REVIEW 明细: %v", results)
+	}
+
+	// 报告分数应低于纯静态分数（裁决移除了命中）
+	rep := m["report"].(map[string]any)
+	scoreObj := rep["score"].(map[string]any)
+	scoreVal := scoreObj["score"].(float64)
+	if scoreVal <= 0 {
+		t.Fatalf("裁决后分数 = %f, want > 0（部分命中保留）", scoreVal)
+	}
+}
+
+// 二次裁决失败（review 端点 500）→ 降级：仍返回静态报告，201
+func TestAuditDeepReviewFailureDegrades(t *testing.T) {
+	r, st := newDeepRouter(t, &llmMock{
+		status: 200,
+		body:   suspiciousLLMBody,
+		routes: map[string]string{"静态命中列表": `{"error":"boom"}`},
+	})
+	key := deepUser(t, r)
+
+	w := uploadAuditPath(t, r, key, maliciousZip(t), "evil.zip", "/v1/audit/deep")
+	if w.Code != 201 {
+		t.Fatalf("deep audit with review failure = %d, want 201（降级）", w.Code)
+	}
+	m := parseBody(t, w)
+	results := m["llm_results"].([]any)
+	// 降级：无 REVIEW 明细，只有 RS-018/019
+	for _, item := range results {
+		if rid, _ := item.(map[string]any)["rule_id"].(string); strings.HasPrefix(rid, "REVIEW:") {
+			t.Fatalf("降级模式不应有 REVIEW 明细: %v", results)
+		}
+	}
+	if n, _ := st.CountUsage(context.Background(), 1, "llm_review"); n != 1 {
+		t.Errorf("降级模式仍应计费 llm_review, usage = %d", n)
 	}
 }

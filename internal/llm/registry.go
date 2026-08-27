@@ -64,6 +64,18 @@ func (r *Registry) Enabled() bool {
 	return r.enabled
 }
 
+// ReviewFindings 转发二次裁决到当前 provider；未配置或 provider 不支持时返回空结果（不报错）。
+func (r *Registry) ReviewFindings(ctx context.Context, req ReviewRequest) (*ReviewResult, error) {
+	r.mu.RLock()
+	p := r.current
+	r.mu.RUnlock()
+	rp, ok := p.(ReviewProvider)
+	if !ok {
+		return &ReviewResult{}, nil
+	}
+	return rp.ReviewFindings(ctx, req)
+}
+
 // Model 当前模型名（未启用返回默认名）。
 func (r *Registry) Model() string {
 	r.mu.RLock()
