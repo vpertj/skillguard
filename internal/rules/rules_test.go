@@ -218,9 +218,9 @@ func containsStr(list []string, s string) bool {
 }
 
 func TestRealRulesFileLoads(t *testing.T) {
-	// 规则自检：真实规则库必须可加载、可编译、ID 唯一
-	path := filepath.Join("..", "..", "rules", "rules.yaml")
-	rs, err := LoadRules(path)
+	// 规则自检：真实规则库（公开 + 闭源）必须可加载、可编译、ID 唯一
+	base := filepath.Join("..", "..", "rules")
+	rs, err := LoadRules(filepath.Join(base, "rules.yaml"), filepath.Join(base, "pro-rules.yaml"))
 	if err != nil {
 		t.Fatalf("真实规则库加载失败: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestRealRulesFileLoads(t *testing.T) {
 		t.Errorf("Version = %q, want 1.0", rs.Version())
 	}
 	if len(rs.Rules()) != 37 {
-		t.Errorf("Rules = %d, want 37", len(rs.Rules()))
+		t.Errorf("Rules = %d, want 37（30 公开 + 7 闭源）", len(rs.Rules()))
 	}
 	if len(rs.FailedRuleIDs()) != 0 {
 		t.Errorf("FailedRuleIDs = %v, want empty（所有正则必须可编译）", rs.FailedRuleIDs())
@@ -241,5 +241,20 @@ func TestRealRulesFileLoads(t *testing.T) {
 	}
 	if got := rs.FileExtOnly(); len(got) != 1 || got[0].ID != "RS-025" {
 		t.Errorf("FileExtOnly = %v, want [RS-025]", got)
+	}
+}
+
+// 开源降级：pro-rules.yaml 缺失时只加载公开规则，不报错
+func TestLoadRulesMissingProRulesDegrades(t *testing.T) {
+	base := filepath.Join("..", "..", "rules")
+	rs, err := LoadRules(filepath.Join(base, "rules.yaml"), "/nonexistent/pro-rules.yaml")
+	if err != nil {
+		t.Fatalf("缺失闭源规则应降级而非报错: %v", err)
+	}
+	if len(rs.Rules()) != 30 {
+		t.Errorf("Rules = %d, want 30（仅公开）", len(rs.Rules()))
+	}
+	if got := rs.FileExtOnly(); len(got) != 1 || got[0].ID != "RS-025" {
+		t.Errorf("FileExtOnly = %v, want [RS-025]（RS-025 在公开层）", got)
 	}
 }

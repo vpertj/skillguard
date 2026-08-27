@@ -52,46 +52,58 @@ var (
 	validDetection = map[string]bool{"regex": true, "heuristic": true, "llm": true, "file_ext": true, "ast": true}
 )
 
-// LoadRules 从 path 加载规则文件：解析、校验、预编译。
+// LoadRules 从路径加载规则文件：解析、校验、预编译。
+// 支持多文件合并（变参）：第一个文件缺失报错，后续文件缺失跳过（开源版无闭源规则时降级）。
 // 单条规则正则编译失败不致命：跳过该规则并记日志（降级策略，ARCHITECTURE §4.3）。
-func LoadRules(path string) (*RuleSet, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("读取规则文件失败: %w", err)
-	}
-	var rf ruleFile
-	if err := yaml.Unmarshal(data, &rf); err != nil {
-		return nil, fmt.Errorf("解析规则文件失败: %w", err)
-	}
-	if strings.TrimSpace(rf.Version) == "" {
-		return nil, fmt.Errorf("规则文件缺少 version 字段")
-	}
-	if len(rf.Rules) == 0 {
-		return nil, fmt.Errorf("规则文件 rules 为空")
+func LoadRules(paths ...string) (*RuleSet, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("至少需要一个规则文件路径")
 	}
 	rs := &RuleSet{
-		meta:     Meta{Version: rf.Version},
 		compiled: make(map[string][]*regexp2.Regexp),
 		failed:   make(map[string]error),
 	}
-	seen := make(map[string]bool, len(rf.Rules))
-	for i := range rf.Rules {
-		r := &rf.Rules[i]
-		if err := validateRule(r, seen); err != nil {
-			return nil, fmt.Errorf("规则校验失败: %w", err)
-		}
-		seen[r.ID] = true
-		rs.rules = append(rs.rules, r)
-		if r.Detection == "llm" || r.Detection == "file_ext" || r.Detection == "ast" {
-			continue // llm 无 patterns；file_ext patterns 是扩展名，均不预编译正则
-		}
-		compiled, err := CompilePatterns(r.Patterns)
+	seen := make(map[string]bool)
+	for i, path := range paths {
+		data, err := os.ReadFile(path)
 		if err != nil {
-			rs.failed[r.ID] = err
-			log.Printf("[skillguard/rules] 规则 %s 正则编译失败，已跳过: %v", r.ID, err)
+			if i == 0 {
+				return nil, fmt.Errorf("读取规则文件失败: %w", err)
+			}
+			log.Printf("[skillguard/rules] 附加规则文件缺失（跳过）: %s", path)
 			continue
 		}
-		rs.compiled[r.ID] = compiled
+		var rf ruleFile
+		if err := yaml.Unmarshal(data, &rf); err != nil {
+			return nil, fmt.Errorf("解析规则文件 %s 失败: %w", path, err)
+		}
+		if strings.TrimSpace(rf.Version) == "" {
+			return nil, fmt.Errorf("规则文件 %s 缺少 version 字段", path)
+		}
+		if len(rf.Rules) == 0 {
+			return nil, fmt.Errorf("规则文件 %s rules 为空", path)
+		}
+		if i == 0 {
+			rs.meta = Meta{Version: rf.Version}
+		}
+		for j := range rf.Rules {
+			r := &rf.Rules[j]
+			if err := validateRule(r, seen); err != nil {
+				return nil, fmt.Errorf("规则校验失败: %w", err)
+			}
+			seen[r.ID] = true
+			rs.rules = append(rs.rules, r)
+			if r.Detection == "llm" || r.Detection == "file_ext" || r.Detection == "ast" {
+				continue // llm 无 patterns；file_ext/ast 不预编译正则
+			}
+			compiled, err := CompilePatterns(r.Patterns)
+			if err != nil {
+				rs.failed[r.ID] = err
+				log.Printf("[skillguard/rules] 规则 %s 正则编译失败，已跳过: %v", r.ID, err)
+				continue
+			}
+			rs.compiled[r.ID] = compiled
+		}
 	}
 	return rs, nil
 }

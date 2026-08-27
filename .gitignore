@@ -19,3 +19,4 @@
 # 临时文件
 tmp/
 internal/bench/testdata/
+rules/pro-rules.yaml

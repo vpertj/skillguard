@@ -48,7 +48,7 @@ func main() {
 	}
 	log.Printf("数据库迁移完成: %s", dsn)
 
-	rs, err := rules.LoadRules("rules/rules.yaml")
+	rs, err := rules.LoadRules("rules/rules.yaml", "rules/pro-rules.yaml")
 	if err != nil {
 		log.Fatalf("加载规则库失败: %v", err)
 	}

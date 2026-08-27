@@ -17,21 +17,23 @@ import (
 
 func main() {
 	var (
-		jsonOut  bool
-		outFile  string
-		rulesDir string
+		jsonOut     bool
+		outFile     string
+		rulesDir    string
+		proRulesDir string
 	)
 	auditCmd := &cobra.Command{
 		Use:   "audit <path>",
 		Short: "审计技能包（目录 / 单文件 / zip），输出风险报告",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAudit(args[0], jsonOut, outFile, rulesDir)
+			return runAudit(args[0], jsonOut, outFile, rulesDir, proRulesDir)
 		},
 	}
 	auditCmd.Flags().BoolVar(&jsonOut, "json", false, "输出 JSON 报告（默认 Markdown）")
 	auditCmd.Flags().StringVarP(&outFile, "output", "o", "", "输出到文件（默认 stdout）")
-	auditCmd.Flags().StringVar(&rulesDir, "rules", "rules/rules.yaml", "规则库路径")
+	auditCmd.Flags().StringVar(&rulesDir, "rules", "rules/rules.yaml", "公开规则库路径")
+	auditCmd.Flags().StringVar(&proRulesDir, "pro-rules", "rules/pro-rules.yaml", "核心规则库路径（闭源，可缺失）")
 
 	rootCmd := &cobra.Command{Use: "skillguard", Short: "SkillGuard 技能安全审计工具"}
 	rootCmd.AddCommand(auditCmd)
@@ -41,8 +43,8 @@ func main() {
 	}
 }
 
-func runAudit(path string, jsonOut bool, outFile, rulesPath string) error {
-	rs, err := rules.LoadRules(rulesPath)
+func runAudit(path string, jsonOut bool, outFile, rulesPath, proRulesPath string) error {
+	rs, err := rules.LoadRules(rulesPath, proRulesPath)
 	if err != nil {
 		return fmt.Errorf("加载规则库: %w", err)
 	}

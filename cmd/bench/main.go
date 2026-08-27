@@ -37,11 +37,12 @@ type sampleResult struct {
 func main() {
 	malDir := flag.String("malicious-dir", "internal/bench/testdata/malicious", "恶意样本目录（每个子目录一个技能包）")
 	benDir := flag.String("benign-dir", "internal/bench/testdata/benign", "良性样本目录（每个子目录一个技能包）")
-	rulesPath := flag.String("rules", "rules/rules.yaml", "规则库路径")
+	rulesPath := flag.String("rules", "rules/rules.yaml", "公开规则库路径")
+	proRulesPath := flag.String("pro-rules", "rules/pro-rules.yaml", "核心规则库路径（闭源，可缺失）")
 	llmMode := flag.Bool("llm", false, "启用 LLM 二次裁决（需 DEEPSEEK_API_KEY）")
 	flag.Parse()
 
-	rs, err := rules.LoadRules(*rulesPath)
+	rs, err := rules.LoadRules(*rulesPath, *proRulesPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载规则库失败: %v\n", err)
 		os.Exit(1)

@@ -26,7 +26,7 @@ func newAdminRouter(t *testing.T) (*gin.Engine, *store.Store) {
 	if err := st.Reset(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	rs, err := rules.LoadRules(filepath.Join("..", "..", "rules", "rules.yaml"))
+	rs, err := rules.LoadRules(filepath.Join("..", "..", "rules", "rules.yaml"), filepath.Join("..", "..", "rules", "pro-rules.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
