@@ -77,8 +77,8 @@ secret detection / third-party content exposure / unverifiable dependencies / di
 - [ ] 基准门禁：每次改动跑 cmd/bench，检出率/误报率变化进 commit message
 
 ### 阶段 B：AST 数据流层
-- [ ] tree-sitter 集成（Python/JS/Shell 起步）
-- [ ] 危险调用链：subprocess/exec 参数数据流
+- [x] tree-sitter 集成（Python 起步，internal/astscan）
+- [ ] 危险调用链：subprocess 字面量参数（RS-037 ✅）→ 变量跟踪数据流（进行中）
 - [ ] 混淆检测：多层编码、随机变量名
 
 ### 阶段 C：IOC 情报层 + 开源发布

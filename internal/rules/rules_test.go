@@ -227,8 +227,8 @@ func TestRealRulesFileLoads(t *testing.T) {
 	if rs.Version() != "1.0" {
 		t.Errorf("Version = %q, want 1.0", rs.Version())
 	}
-	if len(rs.Rules()) != 36 {
-		t.Errorf("Rules = %d, want 36", len(rs.Rules()))
+	if len(rs.Rules()) != 37 {
+		t.Errorf("Rules = %d, want 37", len(rs.Rules()))
 	}
 	if len(rs.FailedRuleIDs()) != 0 {
 		t.Errorf("FailedRuleIDs = %v, want empty（所有正则必须可编译）", rs.FailedRuleIDs())

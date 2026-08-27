@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tianjun/skillguard/internal/astscan"
 	"github.com/tianjun/skillguard/internal/parser"
 	"github.com/tianjun/skillguard/internal/rules"
 )
@@ -223,6 +224,7 @@ type Result struct {
 func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 	res := &Result{LLMReview: rs.LLMOnly()}
 	extRules := rs.FileExtOnly()
+	astEnabled := len(rs.ByDetection("ast")) > 0
 	for _, f := range files {
 		path := filepath.Join(root, filepath.FromSlash(f))
 		info, err := os.Stat(path)
@@ -256,6 +258,17 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 			continue
 		}
 		res.ScannedFiles++
+		// AST 级检测：Python 脚本危险调用链（tree-sitter）
+		if astEnabled && strings.HasSuffix(strings.ToLower(f), ".py") {
+			for _, d := range astscan.ScanPython(content, f) {
+				res.Findings = append(res.Findings, Finding{
+					RuleID: d.RuleID, RuleName: "危险子进程调用链（AST）",
+					Category: d.Category, Severity: d.Severity,
+					Weight: d.Weight, Detection: "ast",
+					File: d.File, Line: d.Line, Snippet: d.Snippet,
+				})
+			}
+		}
 		if len(parser.FindSkillMD([]string{f})) > 0 {
 			fm, body, err := parser.ParseSkillMD(string(content))
 			if err != nil {

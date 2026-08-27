@@ -472,3 +472,13 @@ rules:
       - '(?i)\b(?:webhook|pastebin|transfer\.sh|file\.io|0x0\.st|ngrok|glot\.io|rentry\.co|analytics-svc)\b[^\n]{0,80}'
     rationale: 一次性粘贴站/webhook/隧道服务是窃密外传的常见目标（ClawHavoc 用 glot.io/rentry.co/webhook.site 分发与回传）。
     false_positive_note: 正常技能引用 GitHub raw 或官方 API 不命中；命中后 LLM 复核是否与敏感数据关联。
+
+  - id: RS-037
+    name: 危险子进程调用链（AST）
+    category: CODE_EXECUTION
+    severity: critical
+    weight: 95
+    detection: ast
+    patterns: []
+    rationale: 语法树级检测 subprocess 调用携带下载/管道执行参数（curl|bash、wget 下载执行）——区分合法工具调用（soffice 文档转换）与恶意执行链。
+    false_positive_note: AST 层只看调用结构，变量间接传参暂不跟踪（后续数据流增强）。
