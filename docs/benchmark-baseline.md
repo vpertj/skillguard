@@ -1,0 +1,55 @@
+# 引擎基准基线报告（阶段 0）
+
+> 日期：2026-08-27
+> 工具：`go run ./cmd/bench`
+> 规则库：rules/rules.yaml v1.0（24 条规则）
+
+## 基线数据
+
+| 指标 | 基线 | 目标 | 状态 |
+|---|---|---|---|
+| **恶意检出率** | **97.9%**（47/48） | ≥85% | ✅ 达标 |
+| **良性误报率** | **87.9%**（29/33） | ≤15% | ❌ 严重超标 |
+| 平均单包耗时 | 38ms | — | ✅ 快 |
+
+## 样本集
+
+- **恶意 48 个**：aztr0nutzs/NET_NiNjA.v1.2（40 个，Snyk ToxicSkills 报告点名的恶意分发作者）+ snyk-labs/toxicskills-goof（8 个，含 ASCII smuggling、伪造 Vercel 外泄技能）
+- **良性 33 个**：anthropics/skills 官方（20 个）+ obra/superpowers（13 个）
+- 样本复现：`scripts/fetch-bench-samples.sh`（样本含真实恶意代码，**不入 git 历史**，测试数据按 AGENTS.md 约定隔离）
+
+## 漏检分析（1 个）
+
+- `snyk-testing-guidelines`（score=0，0 命中）——ASCII smuggling 注入技能（Unicode 走私）。现有 24 条规则无 Unicode 走私检测 → **需新规则**
+
+## 误报根因分析（29 个）
+
+对 anthropic-docx 的 12 条命中逐条分析，根因分三类：
+
+1. **合法代码误判为危险调用（主因）**
+   - `re.compile(...)` 命中 RS-001 代码执行（w=95）
+   - `subprocess.run(["soffice"])`（合法调用 LibreOffice 转换文档）命中 RS-002（w=90）
+   - `os.environ.copy()` 命中 RS-010 数据窃取（w=70）
+   - 根因：正则只认文本模式，**无法区分"正常工具调用"与"恶意调用链"**（如 subprocess 执行 `curl | bash`）
+
+2. **文档技术名词误命中**
+   - "ZIP archive of XML files" 命中 RS-004（ZIP 相关规则）
+   - 根因：pattern 缺少上下文限定（如"password-protected ZIP"才算可疑，普通 ZIP 概念是正常文档）
+
+3. **含代码技能的结构性误报**
+   - Anthropic/obra 官方技能本身就是"含大量可执行代码的技能"（python-docx、git 命令、code review 脚本）
+   - 静态规则必然命中 → **需要意图层裁决**（LLM 二次确认）
+
+## 优化方向（优先级）
+
+1. **规则精调（快赢）**：RS-001/002/010 的 pattern 加上下文（如 `subprocess.run` 需结合 `curl|wget|bash -c` 才高危；`re.compile` 不应命中代码执行）
+2. **阶段 1 AST 分析**：语法树级区分"正常调用"vs"恶意调用链"——`subprocess(soffice)` 良性 vs `subprocess(curl|bash)` 恶意
+3. **阶段 2 LLM 二次裁决**：静态高命中 → LLM 判断意图 → 显著降误报（付费档可解锁）
+4. **新规则**：Unicode/ASCII smuggling 检测（补漏检）
+
+## 用法
+
+```bash
+go run ./cmd/bench                      # 跑基线
+go run ./cmd/bench --malicious-dir X --benign-dir Y   # 自定义样本集
+```
