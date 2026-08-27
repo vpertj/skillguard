@@ -6,25 +6,28 @@ import (
 	"github.com/tianjun/skillguard/internal/llm"
 )
 
-// confirmed 保留、rejected 移除
+// confirmed(high) 保留、rejected(high) 移除、rejected(low) 保留
 func TestApplyReviewKeepsConfirmedRemovesRejected(t *testing.T) {
 	findings := []Finding{
 		{RuleID: "RS-002", RuleName: "Shell 命令执行", Category: "CODE_EXECUTION", Weight: 90, File: "scripts/x.py"},
 		{RuleID: "RS-010", RuleName: "环境变量转储", Category: "DATA_THEFT", Weight: 70, File: "SKILL.md"},
 		{RuleID: "RS-004", RuleName: "命令替换执行", Category: "CODE_EXECUTION", Weight: 80, File: "README.md"},
+		{RuleID: "RS-001", RuleName: "动态代码执行", Category: "CODE_EXECUTION", Weight: 95, File: "a.py"},
 	}
 	reviews := []llm.FindingReview{
 		{RuleID: "RS-002", File: "scripts/x.py", Confirmed: false, Confidence: "high", Reason: "soffice 合法"},
 		{RuleID: "RS-010", File: "SKILL.md", Confirmed: true, Confidence: "high", Reason: "真实窃取"},
 		// RS-004 无裁决 → 保留（LLM 未覆盖不惩罚）
+		// RS-001 rejected → 移除（CODE_EXECUTION 维最高权重消失，评分必须下降）
+		{RuleID: "RS-001", File: "a.py", Confirmed: false, Confidence: "low", Reason: "元编程误报"},
 	}
 
 	kept, rejected := ApplyReview(findings, reviews)
 	if len(kept) != 2 {
 		t.Fatalf("kept = %d, want 2 (RS-010 + RS-004)", len(kept))
 	}
-	if len(rejected) != 1 || rejected[0].RuleID != "RS-002" {
-		t.Fatalf("rejected = %+v, want [RS-002]", rejected)
+	if len(rejected) != 2 || rejected[0].RuleID != "RS-002" || rejected[1].RuleID != "RS-001" {
+		t.Fatalf("rejected = %+v, want [RS-002 RS-001]", rejected)
 	}
 	// 移除后评分应显著下降（RS-002 的 90 分权重没了）
 	score := Score(kept)
@@ -41,7 +44,7 @@ func TestApplyReviewMatchesFile(t *testing.T) {
 		{RuleID: "RS-002", File: "b.py"},
 	}
 	reviews := []llm.FindingReview{
-		{RuleID: "RS-002", File: "a.py", Confirmed: false},
+		{RuleID: "RS-002", File: "a.py", Confirmed: false, Confidence: "high"},
 	}
 	kept, rejected := ApplyReview(findings, reviews)
 	if len(kept) != 1 || kept[0].File != "b.py" {

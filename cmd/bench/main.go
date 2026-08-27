@@ -198,7 +198,7 @@ func report(mal, ben []sampleResult, llmMode bool, ruleCount int) {
 	printMisses(mal)
 	fmt.Println("------------------------------------------")
 	fmt.Println("误报清单（良性样本被判非安全 >20 分）:")
-	printFalsePositives(ben)
+	printFalsePositives(ben, llmMode)
 	fmt.Println("==========================================")
 }
 
@@ -269,11 +269,15 @@ func printMisses(mal []sampleResult) {
 	}
 }
 
-func printFalsePositives(ben []sampleResult) {
+func printFalsePositives(ben []sampleResult, llmMode bool) {
 	n := 0
 	for _, s := range ben {
-		if s.Score > 20 {
-			fmt.Printf("  ✗ %-40s score=%.1f grade=%s findings=%d\n", s.Name, s.Score, s.Grade, s.Findings)
+		score := s.Score
+		if llmMode {
+			score = s.LLMScore
+		}
+		if score > 20 {
+			fmt.Printf("  ✗ %-40s score=%.1f grade=%s findings=%d\n", s.Name, score, s.Grade, s.Findings)
 			n++
 		}
 	}
