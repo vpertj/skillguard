@@ -111,6 +111,8 @@ var orderedDims = []dimension{
 }
 
 // Score 按五维加权算法计算 0-100 风险分（ARCHITECTURE §6）。
+// 文件类型加权（2026-08-28，基准驱动）：文档（.md 等）里的代码行为类命中是示例/说明，
+// 降权 50%；提示注入类（攻击载体就是文档）与脚本类命中保持全权重。
 func Score(findings []Finding) ScoreResult {
 	if len(findings) == 0 {
 		level, key, icon := Grade(0)
@@ -128,12 +130,13 @@ func Score(findings []Finding) ScoreResult {
 			log.Printf("[skillguard/analyzer] 未知类别 %q，落入代码危害性", f.Category)
 			dim = dimension{"代码危害性", 0.40}
 		}
-		if f.Weight > groupMax[dim.name] {
-			groupMax[dim.name] = f.Weight
+		w := effectiveWeight(f)
+		if w > groupMax[dim.name] {
+			groupMax[dim.name] = w
 		}
 		catSet[f.Category] = true
-		if f.Category == "DESTRUCTIVE" && f.Weight > destructiveMax {
-			destructiveMax = f.Weight
+		if f.Category == "DESTRUCTIVE" && w > destructiveMax {
+			destructiveMax = w
 		}
 	}
 	var (
@@ -159,6 +162,12 @@ func Score(findings []Finding) ScoreResult {
 	if dataTheft && exfil {
 		bonus += 10
 		notes = append(notes, "检测到「数据收集 → 外联」完整链路，+10 分")
+	}
+	// IOC 命中保底：已知 C2/恶意基础设施是确凿证据，即使单维 100×0.20=20 恰卡线，
+	// 也保证检出（+5 分）。
+	if hasIOCHit(findings) {
+		bonus += 5
+		notes = append(notes, "命中已知 C2/恶意基础设施（IOC），+5 分")
 	}
 	total = round1(total) + float64(bonus)
 	if destructiveMax >= 90 {
@@ -186,6 +195,46 @@ func Score(findings []Finding) ScoreResult {
 		Score: total, Level: level, LevelKey: key, Icon: icon,
 		Breakdown: breakdown, Bonus: bonus, Notes: notes, HitCategories: hit,
 	}
+}
+
+// effectiveWeight 应用文件类型加权：
+// - 文档（.md/.markdown/.txt）里的代码行为类命中 → 权重减半（示例/说明，非执行）
+// - 提示注入/混淆类（攻击载体就是文档内容）→ 不降权
+// - IOC 查表命中 → 不降权（内容出现已知 C2/恶意域名即确凿证据）
+// - 脚本/其他文件 → 全权重
+func effectiveWeight(f Finding) int {
+	if !isDocFile(f.File) {
+		return f.Weight
+	}
+	if f.Detection == "ioc" {
+		return f.Weight
+	}
+	switch f.Category {
+	case "PROMPT_INJECTION", "LLM_SPECIFIC", "OBFSUSCATION":
+		return f.Weight
+	}
+	w := f.Weight / 2
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// hasIOCHit 判断命中列表是否含 IOC 查表命中。
+func hasIOCHit(findings []Finding) bool {
+	for _, f := range findings {
+		if f.Detection == "ioc" {
+			return true
+		}
+	}
+	return false
+}
+
+// isDocFile 判断是否为文档文件（命中可能是示例/说明而非执行代码）。
+func isDocFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown") ||
+		strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".mdx")
 }
 
 func round1(f float64) float64 { return math.Round(f*10) / 10 }
