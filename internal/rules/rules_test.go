@@ -227,8 +227,8 @@ func TestRealRulesFileLoads(t *testing.T) {
 	if rs.Version() != "1.0" {
 		t.Errorf("Version = %q, want 1.0", rs.Version())
 	}
-	if len(rs.Rules()) != 37 {
-		t.Errorf("Rules = %d, want 37（30 公开 + 7 闭源）", len(rs.Rules()))
+	if len(rs.Rules()) != 38 {
+		t.Errorf("Rules = %d, want 38（31 公开 + 7 闭源）", len(rs.Rules()))
 	}
 	if len(rs.FailedRuleIDs()) != 0 {
 		t.Errorf("FailedRuleIDs = %v, want empty（所有正则必须可编译）", rs.FailedRuleIDs())
@@ -251,8 +251,8 @@ func TestLoadRulesMissingProRulesDegrades(t *testing.T) {
 	if err != nil {
 		t.Fatalf("缺失闭源规则应降级而非报错: %v", err)
 	}
-	if len(rs.Rules()) != 30 {
-		t.Errorf("Rules = %d, want 30（仅公开）", len(rs.Rules()))
+	if len(rs.Rules()) != 31 {
+		t.Errorf("Rules = %d, want 31（仅公开）", len(rs.Rules()))
 	}
 	if got := rs.FileExtOnly(); len(got) != 1 || got[0].ID != "RS-025" {
 		t.Errorf("FileExtOnly = %v, want [RS-025]（RS-025 在公开层）", got)

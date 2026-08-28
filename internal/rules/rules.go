@@ -49,7 +49,7 @@ type RuleSet struct {
 var (
 	idRe           = regexp.MustCompile(`^RS-\d{3}$`)
 	validSeverity  = map[string]bool{"critical": true, "high": true, "medium": true, "low": true}
-	validDetection = map[string]bool{"regex": true, "heuristic": true, "llm": true, "file_ext": true, "ast": true}
+	validDetection = map[string]bool{"regex": true, "heuristic": true, "llm": true, "file_ext": true, "ast": true, "ioc": true}
 )
 
 // LoadRules 从路径加载规则文件：解析、校验、预编译。
@@ -93,7 +93,7 @@ func LoadRules(paths ...string) (*RuleSet, error) {
 			}
 			seen[r.ID] = true
 			rs.rules = append(rs.rules, r)
-			if r.Detection == "llm" || r.Detection == "file_ext" || r.Detection == "ast" {
+			if r.Detection == "llm" || r.Detection == "file_ext" || r.Detection == "ast" || r.Detection == "ioc" {
 				continue // llm 无 patterns；file_ext/ast 不预编译正则
 			}
 			compiled, err := CompilePatterns(r.Patterns)
@@ -130,7 +130,7 @@ func validateRule(r *Rule, seen map[string]bool) error {
 	if !validDetection[r.Detection] {
 		return fmt.Errorf("规则 %s: detection 非法: %q", r.ID, r.Detection)
 	}
-	if r.Detection != "llm" && r.Detection != "ast" && len(r.Patterns) == 0 {
+	if r.Detection != "llm" && r.Detection != "ast" && r.Detection != "ioc" && len(r.Patterns) == 0 {
 		return fmt.Errorf("规则 %s: detection=%s 但 patterns 为空", r.ID, r.Detection)
 	}
 	if r.Detection == "file_ext" {

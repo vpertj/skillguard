@@ -1,4 +1,4 @@
-# 公开规则库（开源版，30 条）：RS-001~024 + RS-025/028/029/030/031/033
+# Open rule library (31 rules): RS-001~024 + RS-025/028/029/030/031/033 + RS-038 IOC
 version: '1.0'
 rules:
 - id: RS-001
@@ -374,3 +374,12 @@ rules:
   - (?i)\b(?:solana|phantom|metamask|keystore)[^\n]{0,60}\bprivate[_-]?key\b
   rationale: 直接访问钱包私钥/助记词是窃取加密资产的前置动作（ClawHavoc crypto-lure 类别）。
   false_positive_note: 钱包相关教程/文档可能提及概念，需 LLM 复核上下文。
+- id: RS-038
+  name: 已知 C2/恶意基础设施（IOC）
+  category: NETWORK_EXFIL
+  severity: critical
+  weight: 100
+  detection: ioc
+  patterns: []
+  rationale: 内容命中已知 C2 IP/恶意分发域名（ClawHavoc 主 C2 91.92.242.30 关联 824+ 恶意技能），查表比规则匹配快且确凿。
+  false_positive_note: IOC 列表来自公开威胁情报（Koi/Snyk/Antiy），误报率极低。

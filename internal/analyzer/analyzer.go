@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vpertj/skillguard/internal/astscan"
+	"github.com/vpertj/skillguard/internal/ioc"
 	"github.com/vpertj/skillguard/internal/parser"
 	"github.com/vpertj/skillguard/internal/rules"
 )
@@ -225,6 +226,11 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 	res := &Result{LLMReview: rs.LLMOnly()}
 	extRules := rs.FileExtOnly()
 	astEnabled := len(rs.ByDetection("ast")) > 0
+	iocEnabled := len(rs.ByDetection("ioc")) > 0
+	var iocDB *ioc.DB
+	if iocEnabled {
+		iocDB = loadIOCDB()
+	}
 	for _, f := range files {
 		path := filepath.Join(root, filepath.FromSlash(f))
 		info, err := os.Stat(path)
@@ -258,6 +264,18 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 			continue
 		}
 		res.ScannedFiles++
+		// IOC 查表：已知 C2 IP/恶意域名（快且确凿）
+		if iocDB != nil {
+			for _, hit := range iocDB.MatchAll(string(content)) {
+				res.Findings = append(res.Findings, Finding{
+					RuleID: "RS-038", RuleName: "已知 C2/恶意基础设施（IOC）",
+					Category: "NETWORK_EXFIL", Severity: "critical",
+					Weight: 100, Detection: "ioc",
+					File: f, Line: 1,
+					Snippet: "已知恶意基础设施: " + hit.Value + "（" + hit.Category + "）",
+				})
+			}
+		}
 		// AST 级检测：Python 脚本危险调用链（tree-sitter）
 		if astEnabled && strings.HasSuffix(strings.ToLower(f), ".py") {
 			for _, d := range astscan.ScanPython(content, f) {
@@ -298,6 +316,23 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 		return res.Findings[i].RuleID < res.Findings[j].RuleID
 	})
 	return res, nil
+}
+
+// loadIOCDB 加载内嵌威胁情报（C2/域名/发布者）；文件缺失返回 nil（开源版降级）。
+func loadIOCDB() *ioc.DB {
+	db, err := ioc.Load(
+		"internal/bench/ioc/c2-ips.txt",
+		"internal/bench/ioc/malicious-domains.txt",
+		"internal/bench/ioc/malicious-publishers.txt",
+	)
+	if err != nil {
+		log.Printf("[skillguard/analyzer] IOC 加载失败（降级无查表）: %v", err)
+		return nil
+	}
+	if db.Len() == 0 {
+		return nil
+	}
+	return db
 }
 
 // preview 截取正文前 500 字符作为报告预览。
