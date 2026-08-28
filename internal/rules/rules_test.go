@@ -218,17 +218,26 @@ func containsStr(list []string, s string) bool {
 }
 
 func TestRealRulesFileLoads(t *testing.T) {
-	// 规则自检：真实规则库（公开 + 闭源）必须可加载、可编译、ID 唯一
+	// 规则自检：真实规则库（公开 + 可选闭源）必须可加载、可编译、ID 唯一
+	// 开源环境（无 pro-rules.yaml）降级为仅公开规则——测试自适应
 	base := filepath.Join("..", "..", "rules")
-	rs, err := LoadRules(filepath.Join(base, "rules.yaml"), filepath.Join(base, "pro-rules.yaml"))
+	proPath := filepath.Join(base, "pro-rules.yaml")
+	_, proErr := os.Stat(proPath)
+	hasPro := proErr == nil
+
+	rs, err := LoadRules(filepath.Join(base, "rules.yaml"), proPath)
 	if err != nil {
 		t.Fatalf("真实规则库加载失败: %v", err)
 	}
 	if rs.Version() != "1.0" {
 		t.Errorf("Version = %q, want 1.0", rs.Version())
 	}
-	if len(rs.Rules()) != 38 {
-		t.Errorf("Rules = %d, want 38（31 公开 + 7 闭源）", len(rs.Rules()))
+	want := 31
+	if hasPro {
+		want = 38
+	}
+	if len(rs.Rules()) != want {
+		t.Errorf("Rules = %d, want %d（公开 31%s）", len(rs.Rules()), want, map[bool]string{true: " + 闭源 7", false: "，无闭源降级"}[hasPro])
 	}
 	if len(rs.FailedRuleIDs()) != 0 {
 		t.Errorf("FailedRuleIDs = %v, want empty（所有正则必须可编译）", rs.FailedRuleIDs())
@@ -236,8 +245,12 @@ func TestRealRulesFileLoads(t *testing.T) {
 	if got := rs.LLMOnly(); len(got) != 2 || got[0].ID != "RS-018" || got[1].ID != "RS-019" {
 		t.Errorf("LLMOnly = %v, want [RS-018 RS-019]", got)
 	}
-	if got := rs.AutoDetectable(); len(got) != 33 {
-		t.Errorf("AutoDetectable = %d, want 33", len(got))
+	wantAuto := 27
+	if hasPro {
+		wantAuto = 33
+	}
+	if got := rs.AutoDetectable(); len(got) != wantAuto {
+		t.Errorf("AutoDetectable = %d, want %d", len(got), wantAuto)
 	}
 	if got := rs.FileExtOnly(); len(got) != 1 || got[0].ID != "RS-025" {
 		t.Errorf("FileExtOnly = %v, want [RS-025]", got)
