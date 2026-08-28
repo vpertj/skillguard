@@ -36,7 +36,9 @@ jobs:
         run: |
           # Open rules must load cleanly (pro rules are not in the open repo)
           go run ./cmd/audit audit --help > /dev/null
-          grep -c '^  - id:' rules/rules.yaml
+          count=$(grep -c '^- id:' rules/rules.yaml)
+          echo "open rules: $count"
+          [ "$count" -ge 30 ] || { echo "open rule count below 30"; exit 1; }
 
   bench:
     runs-on: ubuntu-latest
