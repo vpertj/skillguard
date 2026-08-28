@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test (unit, no DB)
+        run: go test ./... -count=1
+        # store/httpapi tests skip automatically when PostgreSQL is unavailable
+
+      - name: rule file integrity
+        run: |
+          # Open rules must load cleanly (pro rules are not in the open repo)
+          go run ./cmd/audit audit --help > /dev/null
+          grep -c '^  - id:' rules/rules.yaml
+
+  bench:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: fetch benchmark corpus
+        run: bash scripts/fetch-bench-samples.sh
+
+      - name: run static benchmark (open rules)
+        run: go run ./cmd/bench 2>&1 | tee /tmp/bench.txt
+
+      - name: check detection gate
+        run: |
+          grep -qE "恶意检出率:  (9[0-9]|100)\.[0-9]%" /tmp/bench.txt || { echo "Detection rate below 90% gate"; exit 1; }
