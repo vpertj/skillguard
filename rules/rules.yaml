@@ -310,9 +310,12 @@ rules:
   - .whl
   - .jar
   - .tar.gz
+  - .pyc
+  - .docx
   rationale: 技能包内嵌压缩包/可执行文件是恶意分发特征（ClawHavoc 用密码保护 ZIP 绕过杀软，Snyk suspicious download
-    类别）。
-  false_positive_note: 技能自带测试夹具/示例资源可能合法携带 zip，需结合其余命中判断。
+    类别）。.pyc 字节码（源码与产物不一致，xz-utils 后门同法）与 .docx（ZIP of XML 藏指令）是
+    Trail of Bits 实证的扫描规避载体——内容被二进制过滤跳过，但文件存在即告警。
+  false_positive_note: 技能自带测试夹具/示例资源可能合法携带 zip/docx；.pyc 几乎无良性场景（源码与产物不一致）。需结合其余命中判断。
 - id: RS-028
   name: API 密钥明文
   category: CREDENTIAL_HUNT
