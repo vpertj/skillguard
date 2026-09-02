@@ -1,0 +1,60 @@
+name: SkillGuard Skill Audit
+
+# 把 SkillGuard 接入 PR 审查：扫描仓库内的 Agent 技能包，产出 SARIF 上报到
+# GitHub code-scanning，并通过 --fail-threshold 在高风险技能上让 PR 失败。
+#
+# 触发：改动 skills/ 或任何 SKILL.md 的 PR / 推送到 main；也可手动触发。
+# 目录：默认扫描仓库根的 skills/ 目录，可通过仓库变量 SKILLGUARD_SCAN_PATH 调整；
+#       阈值默认 50（HIGH/恶意），可通过 SKILLGUARD_FAIL_THRESHOLD 调整。
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - '**/SKILL.md'
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - '**/SKILL.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 上传 SARIF 到 code-scanning 需要 security-events: write。
+  security-events: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: build skillguard CLI
+        run: go build -o ./bin/skillguard ./cmd/audit
+
+      - name: scan skills and emit SARIF
+        id: audit
+        run: |
+          PATH_TO_SCAN="${SKILLGUARD_SCAN_PATH:-skills}"
+          if [ ! -d "$PATH_TO_SCAN" ]; then
+            echo "目录 $PATH_TO_SCAN 不存在，跳过扫描（可在 SKILLGUARD_SCAN_PATH 配置）"
+            exit 0
+          fi
+          ./bin/skillguard audit "$PATH_TO_SCAN" \
+            --format sarif \
+            --output skillguard.sarif \
+            --fail-threshold "${SKILLGUARD_FAIL_THRESHOLD:-50}"
+          # --fail-threshold 触发门禁时会以非零退出，PR 因此被拦截。
+          echo "SARIF 已生成：skillguard.sarif"
+
+      # 门禁失败也上传 SARIF，保证 code-scanning 能看到告警明细。
+      - name: upload SARIF to code-scanning
+        if: always() && hashFiles('skillguard.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillguard.sarif
+          category: skillguard
