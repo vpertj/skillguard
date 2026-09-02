@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/vpertj/skillguard/internal/analyzer"
 	"github.com/vpertj/skillguard/internal/cryptx"
 	"github.com/vpertj/skillguard/internal/httpapi"
 	"github.com/vpertj/skillguard/internal/llm"
@@ -54,6 +56,16 @@ func main() {
 	}
 	log.Printf("规则库加载完成: %s", rs.Summary())
 
+	// IOC 威胁情报：启动预热 + 定时刷新（feed 持续更新）。默认本地内嵌文件；
+	// 设 SKILLGUARD_IOC_URL 时启用 HTTP feed。版本元数据写入 settings 表便于追溯。
+	if db := analyzer.WarmIOC(ctx); db != nil {
+		log.Printf("IOC 威胁情报预热完成: %d 条", db.Len())
+		recordIOCMeta(ctx, st, db.Len())
+	} else {
+		log.Printf("IOC 威胁情报不可用（降级无查表）")
+	}
+	startIOCRefresher(st)
+
 	// LLM 深度分析（付费档）：优先级 环境变量 DEEPSEEK_API_KEY > 库中 settings（管理员后台配置）
 	registry := llm.NewRegistry()
 	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
@@ -91,4 +103,51 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("服务异常退出: %v", err)
 	}
+}
+
+// iocRefreshInterval IOC 定时刷新周期（默认 10 分钟；与 Provider TTL 一致）。
+const iocRefreshInterval = 10 * time.Minute
+
+// iocMeta 记录在 settings 表（key="ioc_meta"）的 IOC 版本元数据，用于追溯。
+type iocMeta struct {
+	Entries   int       `json:"entries"`
+	Refreshed time.Time `json:"refreshed"`
+}
+
+// recordIOCMeta 把 IOC 元数据写入 settings 表（尽力而为，失败仅记日志不阻塞）。
+func recordIOCMeta(ctx context.Context, st *store.Store, entries int) {
+	meta := iocMeta{Entries: entries, Refreshed: time.Now().UTC()}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		log.Printf("[skillguard/server] IOC 元数据序列化失败: %v", err)
+		return
+	}
+	if err := st.SetSetting(ctx, "ioc_meta", string(b)); err != nil {
+		log.Printf("[skillguard/server] 记录 IOC 元数据失败: %v", err)
+	}
+}
+
+// startIOCRefresher 启动后台 goroutine 定时刷新 IOC feed（feed 持续更新）。
+// 使用 context.Background()（跟随进程生命周期），不依赖 main 的短超时 ctx，
+// 避免 30 秒启动超时 ctx 到期后定时刷新停止。
+func startIOCRefresher(st *store.Store) {
+	go func() {
+		ctx := context.Background()
+		ticker := time.NewTicker(iocRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				db, err := analyzer.RefreshIOC(ctx)
+				if err != nil {
+					log.Printf("[skillguard/server] IOC 定时刷新失败（保留旧缓存）: %v", err)
+					continue
+				}
+				log.Printf("[skillguard/server] IOC 定时刷新完成: %d 条", db.Len())
+				recordIOCMeta(ctx, st, db.Len())
+			}
+		}
+	}()
 }

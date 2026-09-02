@@ -2,12 +2,14 @@
 package analyzer
 
 import (
+	"context"
 	"log"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vpertj/skillguard/internal/astscan"
 	"github.com/vpertj/skillguard/internal/ioc"
@@ -278,7 +280,7 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 	iocEnabled := len(rs.ByDetection("ioc")) > 0
 	var iocDB *ioc.DB
 	if iocEnabled {
-		iocDB = loadIOCDB()
+		iocDB = getIOCDB()
 	}
 	for _, f := range files {
 		path := filepath.Join(root, filepath.FromSlash(f))
@@ -367,21 +369,68 @@ func Analyze(files []string, root string, rs *rules.RuleSet) (*Result, error) {
 	return res, nil
 }
 
-// loadIOCDB 加载内嵌威胁情报（C2/域名/发布者）；文件缺失返回 nil（开源版降级）。
-func loadIOCDB() *ioc.DB {
-	db, err := ioc.Load(
-		"internal/bench/ioc/c2-ips.txt",
-		"internal/bench/ioc/malicious-domains.txt",
-		"internal/bench/ioc/malicious-publishers.txt",
-	)
+// iocProvider 包级 IOC 缓存提供者（惰性初始化，TTL 刷新；避免每次 Analyze 重读磁盘/重复拉取）。
+var (
+	iocOnce     sync.Once
+	iocProvider *ioc.Provider
+)
+
+// iocProviderTTL IOC 缓存刷新周期。
+const iocProviderTTL = 10 * 60 // 10 分钟
+
+// getIOCDB 返回缓存/刷新的 IOC DB。数据源：默认本地内嵌文件（c2/域名/发布者）；
+// 若设置 SKILLGUARD_IOC_URL 环境变量，则追加一个 HTTP feed 源（可插拔、自动更新）。
+// 返回 nil 表示 IOC 不可用（降级无查表，开源版行为）。
+func getIOCDB() *ioc.DB {
+	initIOCProvider()
+	db, err := iocProvider.Get(context.Background())
 	if err != nil {
-		log.Printf("[skillguard/analyzer] IOC 加载失败（降级无查表）: %v", err)
-		return nil
+		log.Printf("[skillguard/analyzer] IOC 刷新失败（降级查表，可能用缓存）: %v", err)
+		if db == nil {
+			return nil
+		}
 	}
 	if db.Len() == 0 {
 		return nil
 	}
 	return db
+}
+
+// initIOCProvider 惰性构造 IOC Provider（并发安全，仅首次生效）。
+func initIOCProvider() {
+	iocOnce.Do(func() {
+		sources := []ioc.Source{
+			&ioc.FileSource{Path: "internal/bench/ioc/c2-ips.txt"},
+			&ioc.FileSource{Path: "internal/bench/ioc/malicious-domains.txt"},
+			&ioc.FileSource{Path: "internal/bench/ioc/malicious-publishers.txt"},
+		}
+		if url := os.Getenv("SKILLGUARD_IOC_URL"); url != "" {
+			sources = append(sources, &ioc.URLSource{URL: url, UserAgent: "skillguard-ioc/1.0"})
+			log.Printf("[skillguard/analyzer] 已配置 IOC HTTP feed: %s", url)
+		}
+		iocProvider = ioc.NewProvider(sources, iocProviderTTL)
+	})
+}
+
+// WarmIOC 预热 IOC（server 启动时调用）：触发首次加载，保证首个审计即用最新情报。
+// 返回当前 IOC DB（可能为 nil，降级无查表）。
+func WarmIOC(ctx context.Context) *ioc.DB {
+	initIOCProvider()
+	db, err := iocProvider.Get(ctx)
+	if err != nil {
+		log.Printf("[skillguard/analyzer] IOC 预热失败（降级）: %v", err)
+		if db == nil {
+			return nil
+		}
+	}
+	return db
+}
+
+// RefreshIOC 强制刷新 IOC（server 定时任务调用）：绕过 TTL 立即重新拉取 feed。
+// 返回刷新后的 DB；刷新失败时返回旧缓存 + 错误。
+func RefreshIOC(ctx context.Context) (*ioc.DB, error) {
+	initIOCProvider()
+	return iocProvider.ForceRefresh(ctx)
 }
 
 // preview 截取正文前 500 字符作为报告预览。
