@@ -16,6 +16,18 @@ const ToolName = "SkillGuard"
 // ToolVersion 报告工具版本。
 const ToolVersion = "0.1.0"
 
+// SandboxReport 沙箱行为观察结果（report 包独立定义，避免对 internal/sandbox 的依赖，
+// 保持 parser ← analyzer ← report 的单向依赖；CLI 层负责把 sandbox.Report 适配到此结构）。
+type SandboxReport struct {
+	Backend            string   `json:"backend"`               // 沙箱后端名（static / gvisor）
+	FileReads          []string `json:"file_reads,omitempty"`  // 读取的文件路径
+	FileWrites         []string `json:"file_writes,omitempty"` // 写入的文件路径
+	NetworkConnections []string `json:"network_connections,omitempty"`
+	ProcessTree        []string `json:"process_tree,omitempty"`
+	EnvReads           []string `json:"env_reads,omitempty"`
+	PVBehavior         string   `json:"pv_behavior,omitempty"`
+}
+
 // ReportData 审计报告数据（JSON Schema 对齐 ARCHITECTURE §3.4）。
 type ReportData struct {
 	Tool         string                `json:"tool"`
@@ -28,6 +40,7 @@ type ReportData struct {
 	Score        analyzer.ScoreResult  `json:"score"`
 	Findings     []analyzer.Finding    `json:"findings"`
 	LLMReview    []*rules.Rule         `json:"llm_review_rules"`
+	Sandbox      *SandboxReport        `json:"sandbox,omitempty"` // 沙箱启用时填充，默认 off 时不存在
 }
 
 // BuildReportData 组装报告数据。空切片统一为 []（保证 JSON 输出为数组而非 null）。
@@ -94,5 +107,27 @@ func RenderMarkdown(d ReportData) string {
 			fmt.Fprintf(&b, "- %s %s：%s\n", r.ID, r.Name, r.Rationale)
 		}
 	}
+	if d.Sandbox != nil {
+		b.WriteString("\n## 沙箱行为观察\n\n")
+		fmt.Fprintf(&b, "- 后端: `%s`（默认静态模拟，未真正执行代码）\n", d.Sandbox.Backend)
+		writeSliceSection(&b, "读取文件", d.Sandbox.FileReads)
+		writeSliceSection(&b, "写入文件", d.Sandbox.FileWrites)
+		writeSliceSection(&b, "网络外联", d.Sandbox.NetworkConnections)
+		writeSliceSection(&b, "进程调用", d.Sandbox.ProcessTree)
+		writeSliceSection(&b, "环境变量读取", d.Sandbox.EnvReads)
+		if d.Sandbox.PVBehavior != "" {
+			fmt.Fprintf(&b, "- 说明: %s\n", d.Sandbox.PVBehavior)
+		}
+	}
 	return b.String()
+}
+
+// writeSliceSection 输出一个行为分组（为空时标注"无"）。
+func writeSliceSection(b *strings.Builder, title string, items []string) {
+	fmt.Fprintf(b, "- %s: ", title)
+	if len(items) == 0 {
+		b.WriteString("无\n")
+		return
+	}
+	b.WriteString(strings.Join(items, "、") + "\n")
 }
