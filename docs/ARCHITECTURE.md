@@ -261,22 +261,26 @@ func Score(findings []Finding) ScoreResult   // 见 §6 算法
 func Grade(score float64) (level, key, icon string) // 分级
 ```
 
-### 5.4 internal/report — 报告生成 [待开发]
+### 5.4 internal/report — 报告生成 [已实现]
 
 ```go
 type ReportData struct { /* 见 §3.4 AuditResult */ }
 func BuildReportData(scan *analyzer.Result, score analyzer.ScoreResult, target string, meta rules.Meta) ReportData
 func RenderMarkdown(d ReportData) string
 func RenderJSON(d ReportData) ([]byte, error)
+func RenderSARIF(d ReportData) ([]byte, error) // SARIF 2.1.0，供 GitHub code-scanning / CI 门禁
 ```
 
-### 5.5 cmd/audit — CLI [待开发]
+### 5.5 cmd/audit — CLI [已实现]
 
 ```text
-skillguard audit <path> [--format md|json] [-o FILE] [--rules PATH]
+skillguard audit <path> [--format md|json|sarif] [-o FILE] [--rules PATH] [--pro-rules PATH] [--fail-threshold FLOAT]
 skillguard rules [--category CODE_EXECUTION]
-退出码: 0 = 安全/低风险, 1 = 高风险, 2 = 恶意
+退出码: 0 = 安全/低风险/未超阈值, 1 = 高风险/恶意或评分超 --fail-threshold, 2 = 恶意
 ```
+
+- `--format sarif` 输出 SARIF 2.1.0（`internal/report.RenderSARIF`），供 GitHub code-scanning / CI 集成
+- `--fail-threshold FLOAT`：评分超过阈值时以非零退出（写完报告后判定），用于 CI 门禁拦截高风险技能
 
 ### 5.6 cmd/server — Web API [待开发]
 
@@ -303,7 +307,7 @@ func BuildPrompt(skillMD *analyzer.SkillMDInfo, scriptSummaries []string) string
 - 成本控制：每条技能最多 N 次调用（默认 4，对应 4 条 llm 规则）；可配置抽样
 - LLM 判定的 finding 以 `detection: "llm"` 写入，权重打折（×0.8）计入评分
 
-### 5.8 internal/sandbox — 沙箱执行器 [阶段二]
+### 5.8 internal/sandbox — 沙箱执行器 [接口骨架 + 静态后端已实现；gVisor 待接入]
 
 ```go
 type Config struct {
@@ -313,16 +317,43 @@ type Config struct {
     CPULimit, MemLimit string
 }
 type Report struct {
+    Backend            string   // 产生报告的后端名（static / gvisor）
     FileReads, FileWrites []string
     NetworkConnections    []string
     ProcessTree           []string
     EnvReads              []string
     ExitCode              int
+    PVBehavior            string // 潜在行为摘要（静态后端注入）
 }
-func Run(packagePath string, cfg Config) (*Report, error)
+type Backend interface {  // 可插拔后端抽象
+    Name() string
+    Run(ctx context.Context, packagePath string, cfg Config) (*Report, error)
+}
+func Run(ctx context.Context, packagePath string, cfg Config) (*Report, error)   // 默认 StaticSimulator
+func RunWithBackend(ctx context.Context, packagePath string, cfg Config, backend Backend) (*Report, error)
+func SetDefaultBackend(b Backend)  // gVisor 就绪后切换
 ```
 
-**选型**：gVisor（Go 生态衔接最顺，AGENTS.md 已定）。
+**选型与状态**：gVisor（Go 生态衔接最顺，AGENTS.md 已定）。当前实现 `StaticSimulator`：从技能包静态提取潜在行为（文件/网络/进程/环境变量），不真正执行代码（无特权、可测试、CI 可跑）；作为可验证占位，gVisor 后端通过 `Backend` 接口替换即可。
+**接入**：CLI `--sandbox` 开关（默认 off，ARCHITECTURE §4.2），沙箱报告写入 `report.ReportData.Sandbox`。
+
+### 5.8.1 internal/ioc — 威胁情报数据源 [已实现: 可插拔数据源 + HTTP feed + 缓存]
+
+```go
+type Source interface {          // 数据源抽象：本地文件与 HTTP feed 均实现
+    Name() string
+    Fetch(ctx context.Context) ([]IOC, error)
+}
+type FileSource struct { Path string }   // 本地 `value|category|notes` 文本
+type URLSource  struct { URL string; ... } // HTTP(S) feed，含 If-Modified-Since / Last-Modified / 8MiB 上限
+func LoadSources(ctx context.Context, sources ...Source) (*DB, error) // 合并去重；单源失败降级
+type Provider struct{ ... }     // 并发安全缓存；TTL 刷新；刷新失败保留旧缓存
+func NewProvider(sources []Source, ttl time.Duration) *Provider
+```
+
+**数据流**：`cmd/audit` / `analyzer` 默认从本地内嵌文件（`internal/bench/ioc/*.txt`）加载；设置环境变量 `SKILLGUARD_IOC_URL` 可追加一个 HTTP feed 源（可插拔、可持续更新的威胁情报）。`analyzer.getIOCDB()` 用 `Provider`（TTL 10 分钟）缓存，避免每次 `Analyze` 重读磁盘/重复拉取。
+
+**server 集成（feed 持续更新）**：`cmd/server` 启动时调用 `analyzer.WarmIOC` 预热（首个审计即用最新情报），并启动后台 goroutine 定时（每 10 分钟）调用 `analyzer.RefreshIOC` 强制刷新 feed；刷新结果元数据（条数/时间）写入 settings 表 `key="ioc_meta"` 便于追溯。feed 源不可用时降级为本地内嵌表（不阻塞服务）。
 
 ### 5.9 白名单模块 [待开发]
 

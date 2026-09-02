@@ -12,6 +12,9 @@ SkillGuard is a **static + semantic audit engine** purpose-built for this threat
 - **AST-level analysis** (tree-sitter): distinguishes `subprocess.run(["soffice"])` (legitimate document conversion) from `subprocess.run(["bash","-c","curl|bash"])` (malware) — something regex alone cannot do
 - **LLM semantic review**: static hits are re-adjudicated by an LLM for intent — legitimate uses (LibreOffice calls, `re.compile`) are removed from scoring, cutting false positives in half
 - **0-100 risk score** in four grades (safe / low risk / high risk / malicious), with per-dimension breakdown
+- **SARIF + CI gate**: output SARIF 2.1.0 for GitHub code-scanning, with a `--fail-threshold` gate to block risky skills in a PR
+- **Sandbox behavioral observation** (static simulator backend; gVisor dynamic execution on the roadmap)
+- **IOC threat-intel lookup** with a pluggable data source: local embedded lists plus an optional `SKILLGUARD_IOC_URL` HTTP feed (cached, auto-refreshing)
 - **CLI + Web API + management console**: local audit, SaaS service, or embed via API
 - **Open core**: the engine and 30 baseline rules are open source; 7 proprietary ClawHavoc-specific rules ship in the commercial edition
 
@@ -31,6 +34,12 @@ SkillGuard is a **static + semantic audit engine** purpose-built for this threat
 # CLI: audit a skill package locally (directory / file / zip)
 go run ./cmd/audit audit ./path/to/skill
 go run ./cmd/audit audit skill.zip --json
+
+# SARIF for GitHub code-scanning / CI gate
+go run ./cmd/audit audit ./path/to/skill --format sarif -o report.sarif --fail-threshold 50
+
+# Sandbox behavioral observation (static simulator; adds a sandbox section to the report)
+go run ./cmd/audit audit ./path/to/skill --sandbox
 ```
 
 ```bash
@@ -38,6 +47,18 @@ go run ./cmd/audit audit skill.zip --json
 JWT_SECRET=<strong-secret> go run ./cmd/server
 # → http://localhost:8080, console at http://localhost:5173 (cd web && pnpm dev)
 ```
+
+### Threat-intel feed
+
+`cmd/server` warms the IOC list at startup and refreshes it every 10 minutes (metadata written to the `settings` table as `ioc_meta`). Point it at an external threat-intel feed to keep it current, falling back to the embedded lists when the feed is down:
+
+```bash
+SKILLGUARD_IOC_URL=https://feed.example.com/ioc.txt go run ./cmd/server
+```
+
+### CI / Code-scanning
+
+A ready-made GitHub Action is included at `.github/workflows/skill-audit.yml`. It scans `skills/**` (configurable via the `SKILLGUARD_SCAN_PATH` repo variable), uploads SARIF to code-scanning, and fails the PR when a skill exceeds the `SKILLGUARD_FAIL_THRESHOLD` score (default 50). For other registries, run the CLI directly and upload the SARIF with `github/codeql-action/upload-sarif`.
 
 ## Architecture
 

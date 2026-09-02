@@ -31,8 +31,15 @@ skillguard/
     ├── parser/             # SKILL.md 解析器（目录结构、脚本提取）
     ├── rules/              # 规则引擎（加载 YAML 规则 + 匹配执行）
     ├── analyzer/           # 静态分析器（规则匹配 + 行为链检测）
+    ├── astscan/            # AST 数据流分析（tree-sitter，Python 危险调用链）
+    ├── ioc/                # IOC 威胁情报查表（C2/域名/发布者；可插拔数据源+HTTP feed+缓存）
     ├── llm/                # LLM 语义分析（提示注入、意图识别）
-    └── report/             # 报告生成（风险评分、报告输出）
+    ├── sandbox/            # 沙箱执行器（接口骨架 + 静态模拟后端；gVisor 待接入）
+    ├── report/             # 报告生成（风险评分、报告输出 Markdown/JSON/SARIF）
+    ├── httpapi/            # Web API 层（Gin 路由、认证、配额、审计处理器）
+    ├── store/              # 数据层（PostgreSQL 迁移 + 用户/Key/审计/用量）
+    ├── auth/               # 认证（JWT、密码哈希、API Key）
+    └── cryptx/             # 配置加密（DeepSeek key 等）
 ```
 
 ## 技术栈（已确定，勿擅自更改）
@@ -45,7 +52,7 @@ skillguard/
 - **LLM 调用**：DeepSeek / 通义 / Claude 官方 Go SDK（可插拔）
 - **任务队列**：asynq（审计任务异步处理）
 - **存储**：PostgreSQL + S3（技能样本、审计报告）
-- **沙箱**（阶段二）：gVisor（Go 生态，衔接最顺）
+- **沙箱**：gVisor（Go 生态，衔接最顺；`internal/sandbox` 接口骨架 + 静态模拟后端已实现，gVisor 后端待接入）
 - **部署**：Docker + 单二进制（企业私有化交付友好）
 - **管理后台前端**（阶段二/三）：React 19 + Ant Design 6 + TypeScript（公司 B 端标准，Vite 独立 SPA，Zustand + TanStack Query）
 
@@ -81,6 +88,7 @@ skillguard/
 - 规则引擎必须配套单元测试（`internal/rules` + `internal/analyzer`）
 - 新增规则必须附带 1 个正例（应命中）和 1 个反例（不应命中）测试样本
 - 测试数据放 `internal/analyzer/testdata/`
+- **防扫描器规避埋雷**：对抗业界实证的规避载体（.pyc 字节码、.docx/ZIP 藏指令、padding、Unicode 走私、外链伪装等，见 OWASP AST08 / Trail of Bits），必须保证"文件存在即告警"而非"内容被过滤跳过就对恶意免疫"。承载在 `internal/analyzer/analyzer_evasion_test.go`（动态构造样本）。
 
 ## 当前阶段状态
 
